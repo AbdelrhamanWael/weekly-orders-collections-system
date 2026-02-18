@@ -1,0 +1,13 @@
+# Core Dependencies
+flask
+pandas
+openpyxl
+plotly
+
+# Utilities
+python-dateutil
+pytz
+
+# Excel Export Enhancement
+xlsxwriter
+xlrd
