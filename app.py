@@ -34,7 +34,7 @@ app.secret_key = "weekly_reconciliation_2026"
 UPLOAD_FOLDER  = os.path.join(BASE_DIR, "samples")
 REPORTS_FOLDER = os.path.join(BASE_DIR, "reports")
 DB_PATH        = os.path.join(BASE_DIR, "finance_system.db")
-ALLOWED_EXT    = {".csv", ".xlsx", ".xls"}
+ALLOWED_EXT    = {".csv", ".xlsx", ".xls", ".txt"}
 
 os.makedirs(UPLOAD_FOLDER,  exist_ok=True)
 os.makedirs(REPORTS_FOLDER, exist_ok=True)
