@@ -20,44 +20,56 @@ OUTPUT_DIR = "reports"
 def get_db_connection():
     return sqlite3.connect(DB_NAME)
 
-def generate_weekly_report():
+def generate_weekly_report(snapshot_id=0, label=''):
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         
     conn = get_db_connection()
     
     # Query to join Orders and Collections, including cost fields for Net Profit
-    query = '''
+    query = f'''
     SELECT 
         o.order_id,
         o.platform,
+        o.account_name,
         o.order_date,
         o.week_number,
-        o.price         AS expected_amount,
-        o.cost          AS cost,
-        o.shipping      AS shipping,
-        o.commission    AS commission,
-        o.tax           AS tax,
-        COALESCE(SUM(c.collected_amount), 0) AS collected_amount,
-        (COALESCE(SUM(c.collected_amount), 0) - o.price) AS difference,
-        MAX(c.collection_date) AS last_collection_date,
-        COUNT(c.collected_amount) AS transaction_count
+        o.price                                          AS expected_amount,
+        o.cost,
+        o.shipping,
+        o.commission,
+        o.tax,
+        o.items_summary,
+        COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.original_amount  ELSE 0 END), 0) AS original_collected,
+        COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.collection_fee   ELSE 0 END), 0) AS total_collection_fee,
+        COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.collected_amount ELSE 0 END), 0) AS collected_amount,
+        COALESCE(SUM(CASE WHEN c.is_return=1 THEN ABS(c.collected_amount) ELSE 0 END), 0) AS returned_amount,
+        MAX(c.collection_date)                           AS last_collection_date,
+        COUNT(CASE WHEN c.is_return=0 THEN 1 END)        AS transaction_count,
+        COUNT(CASE WHEN c.is_return=1 THEN 1 END)        AS return_count,
+        MAX(c.account_name)                              AS collection_account
     FROM orders o
-    LEFT JOIN collections c ON o.order_id = c.order_id
+    LEFT JOIN collections c
+        ON o.order_id = c.order_id AND c.snapshot_id = {snapshot_id}
+    WHERE o.snapshot_id = {snapshot_id}
     GROUP BY o.order_id
-    ORDER BY o.platform, o.order_date
+    ORDER BY o.platform, o.account_name, o.order_date
     '''
     
     df = pd.read_sql_query(query, conn)
     conn.close()
     
-    # Calculate Net Profit: collected - (cost + shipping + commission + tax)
+    # حساب صافي الربح: المحصل الفعلي - (التكلفة + الشحن + العمولة + الضريبة + عمولة التحصيل)
     df['net_profit'] = df['collected_amount'] - (
-        df['cost'] + df['shipping'] + df['commission'] + df['tax']
-    )
+        df['cost'] + df['shipping'] + df['commission'] + df['tax'] + df['total_collection_fee']
+    ) - df['returned_amount']
+    # الفرق = المبلغ الأصلي - صافي المحصل (يمثل عمولات التحصيل)
+    df['difference'] = df['original_collected'] - df['collected_amount']
     
     # Add Status Column
     def get_status(row):
+        if row['return_count'] > 0 and row['transaction_count'] == 0:
+            return 'مرتجع'
         diff = row['expected_amount'] - row['collected_amount']
         if row['collected_amount'] == 0:
             return 'غير مدفوع'
@@ -72,46 +84,58 @@ def generate_weekly_report():
     
     # Reorder columns for clarity
     display_cols = [
-        'order_id', 'platform', 'order_date', 'week_number',
-        'expected_amount', 'collected_amount', 'difference',
+        'order_id', 'platform', 'account_name', 'order_date', 'week_number',
+        'expected_amount', 'original_collected', 'total_collection_fee', 'collected_amount',
+        'returned_amount', 'difference',
         'cost', 'shipping', 'commission', 'tax', 'net_profit',
-        'status', 'last_collection_date', 'transaction_count'
+        'status', 'items_summary', 'last_collection_date', 'transaction_count', 'return_count'
     ]
     df = df[display_cols]
 
     # Arabic column names for display
     col_names_ar = {
-        'order_id': 'رقم الطلب',
-        'platform': 'المنصة',
-        'order_date': 'تاريخ الطلب',
-        'week_number': 'رقم الأسبوع',
-        'expected_amount': 'المبلغ المتوقع',
-        'collected_amount': 'المبلغ المحصل',
-        'difference': 'الفرق',
-        'cost': 'التكلفة',
-        'shipping': 'الشحن',
-        'commission': 'العمولة',
-        'tax': 'الضريبة',
-        'net_profit': 'صافي الربح',
-        'status': 'الحالة',
-        'last_collection_date': 'آخر تحصيل',
-        'transaction_count': 'عدد الحركات'
+        'order_id':            'رقم الطلب',
+        'platform':            'المنصة',
+        'account_name':        'الحساب',
+        'order_date':          'تاريخ الطلب',
+        'week_number':         'رقم الأسبوع',
+        'expected_amount':     'المبلغ المتوقع',
+        'original_collected':  'المبلغ الأصلي المحصل',
+        'total_collection_fee':'عمولة التحصيل',
+        'collected_amount':    'صافي المحصل',
+        'returned_amount':     'المرتجعات',
+        'difference':          'الفرق (عمولات)',
+        'cost':                'التكلفة',
+        'shipping':            'الشحن',
+        'commission':          'العمولة',
+        'tax':                 'الضريبة',
+        'net_profit':          'صافي الربح',
+        'status':              'الحالة',
+        'items_summary':       'الأصناف',
+        'last_collection_date':'آخر تحصيل',
+        'transaction_count':   'عدد الحركات',
+        'return_count':        'عدد المرتجعات'
     }
     df_display = df.rename(columns=col_names_ar)
 
     # --- Summary Stats ---
     total_expected   = df['expected_amount'].sum()
+    total_original   = df['original_collected'].sum()
+    total_fees       = df['total_collection_fee'].sum()
     total_collected  = df['collected_amount'].sum()
+    total_returned   = df['returned_amount'].sum()
     total_net_profit = df['net_profit'].sum()
     collection_rate  = (total_collected / total_expected * 100) if total_expected > 0 else 0
     paid_count       = (df['status'] == 'مدفوع').sum()
     unpaid_count     = (df['status'] == 'غير مدفوع').sum()
     partial_count    = (df['status'] == 'مدفوع جزئياً').sum()
+    returned_count   = (df['status'] == 'مرتجع').sum()
     total_orders     = len(df)
 
     # Generate Filename
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    report_path = os.path.join(OUTPUT_DIR, f"Weekly_Reconciliation_Report_{current_date}.xlsx")
+    current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    safe_label   = label.replace(' ', '_').replace('/', '-') if label else f"snapshot_{snapshot_id}"
+    report_path  = os.path.join(OUTPUT_DIR, f"Report_{safe_label}_{current_date}.xlsx")
     
     # --- Excel Styles ---
     header_fill    = PatternFill("solid", fgColor="1F3864")   # Dark navy
@@ -156,12 +180,14 @@ def generate_weekly_report():
         # KPI Cards layout: Row 4 onwards
         kpis = [
             ("إجمالي المبيعات",        f"{total_expected:,.2f} ر.س",   "D6E4F0", "1F3864"),
-            ("إجمالي المحصل",          f"{total_collected:,.2f} ر.س",  "E2EFDA", "375623"),
+            ("إجمالي المحصل (صافي)",   f"{total_collected:,.2f} ر.س",  "E2EFDA", "375623"),
+            ("عمولات التحصيل",          f"{total_fees:,.2f} ر.س",       "FCE4D6", "C00000"),
+            ("إجمالي المرتجعات",        f"{total_returned:,.2f} ر.س",   "FFF2CC", "7F6000"),
             ("صافي الربح الإجمالي",    f"{total_net_profit:,.2f} ر.س", "EBF3FB", "1F3864"),
-            ("نسبة التحصيل",           f"{collection_rate:.1f}%",       "FFF2CC", "7F6000"),
+            ("نسبة التحصيل",           f"{collection_rate:.1f}%",       "E2EFDA", "375623"),
         ]
         
-        col_positions = [2, 4, 6, 8]  # B, D, F, H
+        col_positions = [2, 4, 6, 8, 10, 12]  # B, D, F, H, J, L
         for i, (label, value, bg, fg) in enumerate(kpis):
             col = col_positions[i]
             col_letter = get_column_letter(col)
@@ -200,10 +226,11 @@ def generate_weekly_report():
         ws.row_dimensions[8].height = 25
 
         status_data = [
-            ("إجمالي الطلبات",    total_orders,   "D6E4F0"),
-            ("مدفوع",             paid_count,     "E2EFDA"),
-            ("غير مدفوع",         unpaid_count,   "FCE4D6"),
-            ("مدفوع جزئياً",      partial_count,  "FFF2CC"),
+            ("إجمالي الطلبات",    total_orders,    "D6E4F0"),
+            ("مدفوع",             paid_count,      "E2EFDA"),
+            ("غير مدفوع",         unpaid_count,    "FCE4D6"),
+            ("مدفوع جزئياً",      partial_count,   "FFF2CC"),
+            ("مرتجع",             returned_count,  "F2DCDB"),
         ]
         
         for i, (label, val, bg) in enumerate(status_data):
@@ -230,14 +257,18 @@ def generate_weekly_report():
         ws['B12'].alignment = center_align
         ws.row_dimensions[12].height = 25
 
-        platform_summary = df.groupby('platform').agg(
+        platform_summary = df.groupby(['platform', 'account_name']).agg(
             orders=('order_id', 'count'),
             expected=('expected_amount', 'sum'),
+            original=('original_collected', 'sum'),
+            fees=('total_collection_fee', 'sum'),
             collected=('collected_amount', 'sum'),
+            returned=('returned_amount', 'sum'),
             net_profit=('net_profit', 'sum')
         ).reset_index()
 
-        headers_ps = ['المنصة', 'عدد الطلبات', 'المبلغ المتوقع', 'المبلغ المحصل', 'صافي الربح']
+        headers_ps = ['المنصة', 'الحساب', 'عدد الطلبات', 'المبلغ المتوقع',
+                      'المبلغ الأصلي', 'عمولة التحصيل', 'صافي المحصل', 'المرتجعات', 'صافي الربح']
         for j, h in enumerate(headers_ps):
             cell = ws.cell(row=13, column=2+j)
             cell.value = h
@@ -249,8 +280,10 @@ def generate_weekly_report():
 
         for r_idx, row in platform_summary.iterrows():
             row_num = 14 + r_idx
-            vals = [row['platform'], row['orders'],
-                    f"{row['expected']:,.2f}", f"{row['collected']:,.2f}", f"{row['net_profit']:,.2f}"]
+            vals = [row['platform'], row['account_name'], row['orders'],
+                    f"{row['expected']:,.2f}", f"{row['original']:,.2f}",
+                    f"{row['fees']:,.2f}", f"{row['collected']:,.2f}",
+                    f"{row['returned']:,.2f}", f"{row['net_profit']:,.2f}"]
             for j, v in enumerate(vals):
                 cell = ws.cell(row=row_num, column=2+j)
                 cell.value = v
@@ -260,8 +293,8 @@ def generate_weekly_report():
             ws.row_dimensions[row_num].height = 20
 
         # Column widths
-        for col in range(1, 12):
-            ws.column_dimensions[get_column_letter(col)].width = 18
+        for col in range(1, 16):
+            ws.column_dimensions[get_column_letter(col)].width = 20
 
         # =====================================================
         # SHEET 2: All Orders (جميع الطلبات)
@@ -272,19 +305,108 @@ def generate_weekly_report():
         _style_data_sheet(ws2, df, header_fill, header_font, thin_border, center_align)
 
         # =====================================================
-        # SHEET 3: Per Platform
+        # SHEET 3: Per Platform + Account
         # =====================================================
-        for platform in df['platform'].unique():
-            p_df = df[df['platform'] == platform]
+        for (platform, account), p_df in df.groupby(['platform', 'account_name']):
+            sheet_name = f"{platform[:20]}-{account[:8]}" if account else platform[:31]
+            sheet_name = sheet_name[:31]  # Excel sheet name limit
             p_display = p_df.rename(columns=col_names_ar)
-            sheet_name = platform[:31]  # Excel sheet name limit
             p_display.to_excel(writer, sheet_name=sheet_name, index=False)
             ws_p = writer.sheets[sheet_name]
             ws_p.sheet_view.rightToLeft = True
             _style_data_sheet(ws_p, p_df, subheader_fill, header_font, thin_border, center_align)
 
         # =====================================================
-        # SHEET 4: Pending & Discrepancies (متأخرات وفروقات)
+        # SHEET 4: Returns Only (المرتجعات)
+        # =====================================================
+        returns_df = df[df['returned_amount'] > 0].rename(columns=col_names_ar)
+        if not returns_df.empty:
+            returns_df.to_excel(writer, sheet_name='المرتجعات', index=False)
+            ws_ret = writer.sheets['المرتجعات']
+            ws_ret.sheet_view.rightToLeft = True
+            _style_data_sheet(ws_ret, df[df['returned_amount'] > 0],
+                              PatternFill("solid", fgColor="F2DCDB"), header_font, thin_border, center_align)
+
+        # =====================================================
+        # SHEET 5: Items Aggregated Summary (ملخص الأصناف المجمّع)
+        # تحليل items_summary وتجميع الكميات لكل صنف لكل حساب
+        # =====================================================
+        items_rows_df = df[df['items_summary'].str.strip() != ''][
+            ['platform', 'account_name', 'items_summary']
+        ].copy()
+
+        if not items_rows_df.empty:
+            import re as _re
+            aggregated = {}  # key: (platform, account, item_name) -> total_qty
+
+            for _, row in items_rows_df.iterrows():
+                platform_val = row['platform']
+                account_val  = row['account_name'] or 'غير محدد'
+                summary      = str(row['items_summary'])
+
+                # تقسيم على ' | ' للطلبات متعددة الأصناف
+                parts = summary.split(' | ')
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    # استخراج الاسم والكمية: "اسم المنتج x3"
+                    m = _re.match(r'^(.+?)\s+x(\d+)$', part, _re.IGNORECASE)
+                    if m:
+                        item_name = m.group(1).strip()
+                        qty       = int(m.group(2))
+                    else:
+                        item_name = part
+                        qty       = 1
+
+                    key = (platform_val, account_val, item_name)
+                    aggregated[key] = aggregated.get(key, 0) + qty
+
+            if aggregated:
+                agg_records = [
+                    {'المنصة': k[0], 'الحساب': k[1], 'اسم الصنف': k[2], 'إجمالي الكمية': v}
+                    for k, v in sorted(aggregated.items(), key=lambda x: (x[0][0], x[0][1], -x[1]))
+                ]
+                agg_df = pd.DataFrame(agg_records)
+
+                agg_df.to_excel(writer, sheet_name='ملخص الأصناف', index=False)
+                ws_agg = writer.sheets['ملخص الأصناف']
+                ws_agg.sheet_view.rightToLeft = True
+
+                # تنسيق الورقة
+                hdr_fill_items = PatternFill("solid", fgColor="1F3864")
+                for cell in ws_agg[1]:
+                    cell.font      = Font(bold=True, color="FFFFFF", size=11)
+                    cell.fill      = hdr_fill_items
+                    cell.alignment = center_align
+                    cell.border    = thin_border
+                ws_agg.row_dimensions[1].height = 25
+
+                prev_platform = prev_account = None
+                for r_idx, row in enumerate(ws_agg.iter_rows(min_row=2), start=2):
+                    platform_cell = ws_agg.cell(row=r_idx, column=1).value
+                    account_cell  = ws_agg.cell(row=r_idx, column=2).value
+                    # تلوين متناوب حسب الحساب
+                    bg = "EBF3FB" if (platform_cell, account_cell) != (prev_platform, prev_account) and \
+                         (r_idx % 2 == 0) else "FFFFFF"
+                    if platform_cell != prev_platform or account_cell != prev_account:
+                        bg = "D6E4F0"
+                        prev_platform = platform_cell
+                        prev_account  = account_cell
+                    for cell in row:
+                        cell.alignment = center_align
+                        cell.border    = thin_border
+                        cell.fill      = PatternFill("solid", fgColor=bg)
+                    ws_agg.row_dimensions[r_idx].height = 20
+
+                # عرض الأعمدة
+                ws_agg.column_dimensions['A'].width = 15
+                ws_agg.column_dimensions['B'].width = 15
+                ws_agg.column_dimensions['C'].width = 55
+                ws_agg.column_dimensions['D'].width = 18
+
+        # =====================================================
+        # SHEET 6: Pending & Discrepancies (متأخرات وفروقات)
         # =====================================================
         pending = df[df['status'] != 'مدفوع'].rename(columns=col_names_ar)
         pending.to_excel(writer, sheet_name='متأخرات وفروقات', index=False)
@@ -293,16 +415,45 @@ def generate_weekly_report():
         _style_data_sheet(ws4, df[df['status'] != 'مدفوع'],
                           PatternFill("solid", fgColor="C00000"), header_font, thin_border, center_align)
 
+    # ── Save KPIs to weekly_reports table ──────────────────
+    try:
+        conn2 = get_db_connection()
+        wk_num = int(df['week_number'].mode()[0]) if not df['week_number'].isna().all() else 0
+        yr_num = int(df['order_date'].str[:4].mode()[0]) if not df['order_date'].isna().all() else datetime.now().year
+        conn2.execute('''
+            INSERT OR REPLACE INTO weekly_reports
+            (snapshot_id, week_number, year, label,
+             total_orders, total_sales, total_collected, total_uncollected,
+             net_profit, collection_rate,
+             paid_count, unpaid_count, partial_count, report_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            snapshot_id, wk_num, yr_num, label,
+            total_orders, round(total_expected, 2), round(total_collected, 2),
+            round(total_expected - total_collected, 2),
+            round(total_net_profit, 2), round(collection_rate, 1),
+            int(paid_count), int(unpaid_count), int(partial_count),
+            report_path
+        ))
+        conn2.commit()
+        conn2.close()
+        print(f"  -> KPIs saved to weekly_reports (snapshot_id={snapshot_id})")
+    except Exception as e:
+        print(f"  -> Warning: could not save to weekly_reports: {e}")
+
     print(f"✅ Report generated: {report_path}")
-    print(f"\n{'='*50}")
-    print(f"  إجمالي الطلبات:      {total_orders}")
-    print(f"  إجمالي المبيعات:     {total_expected:,.2f} ر.س")
-    print(f"  إجمالي المحصل:       {total_collected:,.2f} ر.س")
-    print(f"  صافي الربح:          {total_net_profit:,.2f} ر.س")
-    print(f"  نسبة التحصيل:        {collection_rate:.1f}%")
-    print(f"{'='*50}")
+    print(f"\n{'='*60}")
+    print(f"  إجمالي الطلبات:             {total_orders}")
+    print(f"  إجمالي المبيعات:            {total_expected:,.2f} ر.س")
+    print(f"  المبلغ الأصلي المحصل:       {total_original:,.2f} ر.س")
+    print(f"  عمولات التحصيل (الفرق):     {total_fees:,.2f} ر.س")
+    print(f"  صافي المحصل:                {total_collected:,.2f} ر.س")
+    print(f"  إجمالي المرتجعات:           {total_returned:,.2f} ر.س")
+    print(f"  صافي الربح:                 {total_net_profit:,.2f} ر.س")
+    print(f"  نسبة التحصيل:               {collection_rate:.1f}%")
+    print(f"{'='*60}")
     print(f"\nتفصيل حسب الحالة:")
-    print(df.groupby(['platform', 'status']).size().unstack(fill_value=0))
+    print(df.groupby(['platform', 'account_name', 'status']).size().unstack(fill_value=0))
 
 
 def _style_data_sheet(ws, source_df, header_fill, header_font, thin_border, center_align):

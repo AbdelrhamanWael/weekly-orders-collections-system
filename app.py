@@ -50,18 +50,33 @@ def get_db():
     return conn
 
 
-def db_stats():
-    """Return quick counts from the database."""
+def get_active_snapshot_id():
+    """Return the current active snapshot_id (highest id, or 0 if none)."""
+    try:
+        conn = get_db()
+        row  = conn.execute(
+            "SELECT snapshot_id FROM weekly_snapshots ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except:
+        return 0
+
+
+def db_stats(snapshot_id=None):
+    """Return quick counts from the database for a given snapshot."""
     try:
         conn = get_db()
         cur  = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM orders")
+        if snapshot_id is None:
+            snapshot_id = get_active_snapshot_id()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE snapshot_id=?", (snapshot_id,))
         orders = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM collections")
+        cur.execute("SELECT COUNT(*) FROM collections WHERE snapshot_id=?", (snapshot_id,))
         collections = cur.fetchone()[0]
-        cur.execute("SELECT COALESCE(SUM(price),0) FROM orders")
+        cur.execute("SELECT COALESCE(SUM(price),0) FROM orders WHERE snapshot_id=?", (snapshot_id,))
         total_expected = cur.fetchone()[0]
-        cur.execute("SELECT COALESCE(SUM(collected_amount),0) FROM collections")
+        cur.execute("SELECT COALESCE(SUM(collected_amount),0) FROM collections WHERE snapshot_id=?", (snapshot_id,))
         total_collected = cur.fetchone()[0]
         conn.close()
         rate = round(total_collected / total_expected * 100, 1) if total_expected else 0
@@ -71,29 +86,34 @@ def db_stats():
             "total_expected": round(total_expected, 2),
             "total_collected": round(total_collected, 2),
             "collection_rate": rate,
+            "snapshot_id": snapshot_id,
         }
     except Exception as e:
         return {"orders": 0, "collections": 0, "total_expected": 0,
                 "total_collected": 0, "collection_rate": 0, "error": str(e)}
 
 
-def platform_breakdown():
+def platform_breakdown(snapshot_id=None):
     try:
         conn = get_db()
         cur  = conn.cursor()
+        if snapshot_id is None:
+            snapshot_id = get_active_snapshot_id()
         cur.execute("""
             SELECT o.platform,
                    COUNT(o.order_id)                        AS orders,
                    COALESCE(SUM(o.price),0)                 AS expected,
                    COALESCE(SUM(c.collected_amount),0)      AS collected
             FROM orders o
-            LEFT JOIN collections c ON o.order_id = c.order_id
+            LEFT JOIN collections c
+                ON o.order_id = c.order_id AND c.snapshot_id = ?
+            WHERE o.snapshot_id = ?
             GROUP BY o.platform
-        """)
+        """, (snapshot_id, snapshot_id))
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
         for r in rows:
-            r["rate"] = round(r["collected"] / r["expected"] * 100, 1) if r["expected"] else 0
+            r["rate"]      = round(r["collected"] / r["expected"] * 100, 1) if r["expected"] else 0
             r["expected"]  = round(r["expected"],  2)
             r["collected"] = round(r["collected"], 2)
         return rows
@@ -135,18 +155,22 @@ def list_reports():
 
 @app.route("/")
 def index():
+    sid = get_active_snapshot_id()
     return render_template("index.html",
-                           stats=db_stats(),
-                           platforms=platform_breakdown(),
+                           stats=db_stats(sid),
+                           platforms=platform_breakdown(sid),
                            files=list_uploaded_files(),
                            reports=list_reports())
 
 
 @app.route("/api/stats")
 def api_stats():
+    sid = request.args.get("snapshot_id", None, type=int)
+    if sid is None:
+        sid = get_active_snapshot_id()
     return jsonify({
-        "stats": db_stats(),
-        "platforms": platform_breakdown(),
+        "stats":     db_stats(sid),
+        "platforms": platform_breakdown(sid),
     })
 
 
@@ -167,15 +191,20 @@ def api_charts():
         cur  = conn.cursor()
 
         # 1. Platform breakdown (orders count + expected + collected)
+        sid = request.args.get("snapshot_id", None, type=int)
+        if sid is None:
+            sid = get_active_snapshot_id()
         cur.execute("""
             SELECT o.platform,
                    COUNT(DISTINCT o.order_id)            AS orders,
                    COALESCE(SUM(o.price),0)              AS expected,
                    COALESCE(SUM(c.collected_amount),0)   AS collected
             FROM orders o
-            LEFT JOIN collections c ON o.order_id = c.order_id
+            LEFT JOIN collections c
+                ON o.order_id = c.order_id AND c.snapshot_id = ?
+            WHERE o.snapshot_id = ?
             GROUP BY o.platform ORDER BY orders DESC
-        """)
+        """, (sid, sid))
         platforms_raw = [dict(r) for r in cur.fetchall()]
 
         # 2. Payment status distribution
@@ -184,9 +213,11 @@ def api_charts():
                    o.price,
                    COALESCE(SUM(c.collected_amount),0) AS collected
             FROM orders o
-            LEFT JOIN collections c ON o.order_id = c.order_id
+            LEFT JOIN collections c
+                ON o.order_id = c.order_id AND c.snapshot_id = ?
+            WHERE o.snapshot_id = ?
             GROUP BY o.order_id
-        """)
+        """, (sid, sid))
         status_counts = {"مدفوع": 0, "غير مدفوع": 0, "مدفوع جزئياً": 0, "زيادة": 0}
         for row in cur.fetchall():
             exp, col = row["price"], row["collected"]
@@ -203,9 +234,9 @@ def api_charts():
         # 3. Weekly trend (orders per week)
         cur.execute("""
             SELECT week_number, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS total
-            FROM orders WHERE week_number IS NOT NULL
+            FROM orders WHERE week_number IS NOT NULL AND snapshot_id = ?
             GROUP BY week_number ORDER BY week_number
-        """)
+        """, (sid,))
         weekly = [dict(r) for r in cur.fetchall()]
 
         conn.close()
@@ -272,41 +303,64 @@ def delete_file():
 def process():
     """Run the full pipeline: process_data → process_collections → generate_report"""
     import io, contextlib
+
+    # ── Determine / create snapshot ───────────────────────────
+    data_json   = request.get_json(silent=True) or {}
+    week_label  = data_json.get("label", "").strip()
+    if not week_label:
+        now        = datetime.now()
+        week_label = f"أسبوع {now.isocalendar()[1]} - {now.year}"
+
+    conn = get_db()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO weekly_snapshots (label, week_number, year) VALUES (?, ?, ?)",
+        (week_label, datetime.now().isocalendar()[1], datetime.now().year)
+    )
+    snapshot_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
     log_lines = []
 
-    def capture(fn):
+    def capture(fn, *args, **kwargs):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             try:
-                fn()
+                fn(*args, **kwargs)
             except Exception as e:
                 buf.write(f"\n[ERROR] {e}\n")
         return buf.getvalue()
 
     log_lines.append("═" * 50)
+    log_lines.append(f"▶ Snapshot ID: {snapshot_id} | {week_label}")
+    log_lines.append("═" * 50)
+
     log_lines.append("▶ الخطوة 1/3: معالجة ملفات الطلبات...")
     log_lines.append("═" * 50)
-    log_lines.append(capture(process_data.main))
+    log_lines.append(capture(process_data.main, snapshot_id=snapshot_id))
 
     log_lines.append("═" * 50)
     log_lines.append("▶ الخطوة 2/3: معالجة ملفات التحصيل...")
     log_lines.append("═" * 50)
-    log_lines.append(capture(process_collections.process_collections))
+    log_lines.append(capture(process_collections.process_collections, snapshot_id=snapshot_id))
 
     log_lines.append("═" * 50)
     log_lines.append("▶ الخطوة 3/3: إنشاء التقرير النهائي...")
     log_lines.append("═" * 50)
-    log_lines.append(capture(generate_report.generate_weekly_report))
+    log_lines.append(capture(generate_report.generate_weekly_report,
+                             snapshot_id=snapshot_id, label=week_label))
 
     log_lines.append("═" * 50)
     log_lines.append("✅ اكتملت جميع الخطوات بنجاح!")
 
     return jsonify({
-        "success": True,
-        "log": "\n".join(log_lines),
-        "stats": db_stats(),
-        "platforms": platform_breakdown(),
-        "reports": list_reports(),
+        "success":     True,
+        "log":         "\n".join(log_lines),
+        "snapshot_id": snapshot_id,
+        "stats":       db_stats(snapshot_id),
+        "platforms":   platform_breakdown(snapshot_id),
+        "reports":     list_reports(),
     })
 
 
@@ -320,13 +374,16 @@ def download(filename):
 
 @app.route("/reset-db", methods=["POST"])
 def reset_db():
+    """Reset ONLY the active (latest) snapshot — does NOT delete historical data."""
     try:
+        sid  = get_active_snapshot_id()
         conn = get_db()
-        conn.execute("DELETE FROM orders")
-        conn.execute("DELETE FROM collections")
+        conn.execute("DELETE FROM orders      WHERE snapshot_id=?", (sid,))
+        conn.execute("DELETE FROM collections WHERE snapshot_id=?", (sid,))
+        conn.execute("DELETE FROM weekly_reports WHERE snapshot_id=?", (sid,))
         conn.commit()
         conn.close()
-        return jsonify({"success": True, "message": "تم إعادة تعيين قاعدة البيانات"})
+        return jsonify({"success": True, "message": f"تم إعادة تعيين البيانات للـ snapshot الحالي (id={sid})"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
@@ -334,35 +391,91 @@ def reset_db():
 @app.route("/new-week", methods=["POST"])
 def new_week():
     """
-    Start a fresh week:
-    1. Clear orders + collections from DB
-    2. Delete all uploaded sample files
+    Archive current week and start fresh:
+    1. Create a new snapshot entry in weekly_snapshots
+    2. Delete uploaded sample files (data already saved in DB under old snapshot)
+    NOTE: Historical data is NEVER deleted — it lives under its snapshot_id.
     """
     try:
-        # 1. Clear database
+        data_json  = request.get_json(silent=True) or {}
+        week_label = data_json.get("label", "").strip()
+        if not week_label:
+            now        = datetime.now()
+            week_label = f"أسبوع {now.isocalendar()[1]} - {now.year}"
+
+        # Create new snapshot for the upcoming week
         conn = get_db()
-        conn.execute("DELETE FROM orders")
-        conn.execute("DELETE FROM collections")
+        cur  = conn.cursor()
+        cur.execute(
+            "INSERT INTO weekly_snapshots (label, week_number, year, notes) VALUES (?, ?, ?, ?)",
+            (week_label,
+             datetime.now().isocalendar()[1],
+             datetime.now().year,
+             "بدأ تلقائياً عند الضغط على زر أسبوع جديد")
+        )
+        new_snapshot_id = cur.lastrowid
         conn.commit()
         conn.close()
 
-        # 2. Delete all sample files
+        # Delete sample files (data is safely stored in DB)
         deleted_files = []
         for f in os.listdir(UPLOAD_FOLDER):
-            if f.startswith("~$"):
-                continue
+            if f.startswith("~$"): continue
             ext = os.path.splitext(f)[1].lower()
             if ext in ALLOWED_EXT:
                 os.remove(os.path.join(UPLOAD_FOLDER, f))
                 deleted_files.append(f)
 
         return jsonify({
-            "success": True,
-            "message": f"✅ تم بدء أسبوع جديد! حُذف {len(deleted_files)} ملف وتم تفريغ قاعدة البيانات.",
-            "deleted_files": deleted_files,
+            "success":         True,
+            "message":         f"✅ تم بدء أسبوع جديد! البيانات السابقة محفوظة. حُذف {len(deleted_files)} ملف.",
+            "new_snapshot_id": new_snapshot_id,
+            "label":           week_label,
+            "deleted_files":   deleted_files,
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshots History API
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/snapshots")
+def api_snapshots():
+    """Return list of all weekly snapshots with their KPIs."""
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT
+                s.snapshot_id,
+                s.label,
+                s.week_number,
+                s.year,
+                s.created_at,
+                COALESCE(r.total_orders,    0) AS total_orders,
+                COALESCE(r.total_sales,     0) AS total_sales,
+                COALESCE(r.total_collected, 0) AS total_collected,
+                COALESCE(r.net_profit,      0) AS net_profit,
+                COALESCE(r.collection_rate, 0) AS collection_rate,
+                COALESCE(r.report_path,    '') AS report_path
+            FROM weekly_snapshots s
+            LEFT JOIN weekly_reports r ON s.snapshot_id = r.snapshot_id
+            ORDER BY s.snapshot_id DESC
+        """).fetchall()
+        conn.close()
+        return jsonify({"snapshots": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/snapshot/<int:sid>")
+def api_snapshot_detail(sid):
+    """Return detailed stats + platform breakdown for a specific snapshot."""
+    return jsonify({
+        "stats":     db_stats(sid),
+        "platforms": platform_breakdown(sid),
+    })
 
 
 if __name__ == "__main__":

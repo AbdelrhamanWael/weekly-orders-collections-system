@@ -642,7 +642,9 @@
         border-radius: var(--radius);
         padding: 24px;
       }
-      .chart-card.full { grid-column: 1 / -1; }
+      .chart-card.full {
+        grid-column: 1 / -1;
+      }
       .chart-title {
         font-size: 14px;
         font-weight: 700;
@@ -656,8 +658,14 @@
         position: relative;
         height: 260px;
       }
-      .chart-wrap.tall { height: 320px; }
-      @media(max-width:900px){ .charts-grid{ grid-template-columns:1fr; } }
+      .chart-wrap.tall {
+        height: 320px;
+      }
+      @media (max-width: 900px) {
+        .charts-grid {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   </head>
@@ -694,7 +702,9 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p style="color:var(--cyan);font-weight:700;font-size:12px">عبدالرحمن وائل</p>
+        <p style="color: var(--cyan); font-weight: 700; font-size: 12px">
+          عبدالرحمن وائل
+        </p>
         <p>الإصدار 2.0 | Flask Edition</p>
         <p style="margin-top: 4px; color: #475569">
           {{ stats.orders }} طلب | {{ stats.collections }} تحصيل
@@ -804,39 +814,60 @@
         </div>
 
         <!-- New Week Banner -->
-        <div style="
-          background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(244,63,94,0.08));
-          border: 1px solid rgba(245,158,11,0.3);
-          border-radius: var(--radius);
-          padding: 20px 24px;
-          margin-bottom: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px;
-        ">
+        <div
+          style="
+            background: linear-gradient(
+              135deg,
+              rgba(245, 158, 11, 0.12),
+              rgba(244, 63, 94, 0.08)
+            );
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+          "
+        >
           <div>
-            <div style="font-size:15px;font-weight:800;color:var(--amber)">🗓️ بداية أسبوع جديد؟</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:4px">
-              اضغط الزر لمسح بيانات الأسبوع السابق والبدء من جديد — التقارير القديمة لن تُحذف
+            <div style="font-size: 15px; font-weight: 800; color: var(--amber)">
+              🗓️ بداية أسبوع جديد؟
+            </div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px">
+              اضغط الزر لمسح بيانات الأسبوع السابق والبدء من جديد — التقارير
+              القديمة لن تُحذف
             </div>
           </div>
-          <button class="btn" onclick="startNewWeek()" style="
-            background: linear-gradient(135deg, var(--amber), var(--rose));
-            color: #fff;
-            box-shadow: 0 4px 15px rgba(245,158,11,0.3);
-            font-size:14px;
-          ">🔄 بدء أسبوع جديد</button>
+          <button
+            class="btn"
+            onclick="startNewWeek()"
+            style="
+              background: linear-gradient(135deg, var(--amber), var(--rose));
+              color: #fff;
+              box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+              font-size: 14px;
+            "
+          >
+            🔄 بدء أسبوع جديد
+          </button>
         </div>
 
         <!-- Quick Actions -->
         <div class="card">
           <div class="card-title">⚡ إجراءات سريعة</div>
           <div style="display: flex; gap: 12px; flex-wrap: wrap">
-            <button class="btn btn-primary" onclick="showPage('upload')">📁 رفع ملفات جديدة</button>
-            <button class="btn btn-primary" onclick="showPage('process')">⚙️ تشغيل المعالجة</button>
-            <button class="btn btn-ghost" onclick="showPage('reports')">📈 عرض التقارير</button>
+            <button class="btn btn-primary" onclick="showPage('upload')">
+              📁 رفع ملفات جديدة
+            </button>
+            <button class="btn btn-primary" onclick="showPage('process')">
+              ⚙️ تشغيل المعالجة
+            </button>
+            <button class="btn btn-ghost" onclick="showPage('reports')">
+              📈 عرض التقارير
+            </button>
           </div>
         </div>
       </div>
@@ -845,29 +876,44 @@
       <div class="page" id="page-upload">
         <div class="page-header">
           <div class="page-title">رفع الملفات</div>
-          <div class="page-sub">ارفع ملفات الطلبات والتحصيل من جميع المنصات</div>
+          <div class="page-sub">
+            ارفع ملفات الطلبات والتحصيل من جميع المنصات
+          </div>
         </div>
 
         <!-- New Week Notice -->
-        <div style="
-          background: rgba(34,211,238,0.05);
-          border: 1px solid rgba(34,211,238,0.15);
-          border-radius: 12px;
-          padding: 14px 18px;
-          margin-bottom: 16px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 13px;
-          color: var(--muted);
-        ">
-          <span style="font-size:20px">ℹ️</span>
-          <span>إذا كانت بداية أسبوع جديد، اضغط أولاً على
-            <button onclick="startNewWeek()" style="
-              background:none;border:none;color:var(--amber);
-              font-weight:700;cursor:pointer;font-family:'Tajawal',sans-serif;
-              font-size:13px;text-decoration:underline;
-            ">🔄 بدء أسبوع جديد</button>
+        <div
+          style="
+            background: rgba(34, 211, 238, 0.05);
+            border: 1px solid rgba(34, 211, 238, 0.15);
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--muted);
+          "
+        >
+          <span style="font-size: 20px">ℹ️</span>
+          <span
+            >إذا كانت بداية أسبوع جديد، اضغط أولاً على
+            <button
+              onclick="startNewWeek()"
+              style="
+                background: none;
+                border: none;
+                color: var(--amber);
+                font-weight: 700;
+                cursor: pointer;
+                font-family: &quot;Tajawal&quot;, sans-serif;
+                font-size: 13px;
+                text-decoration: underline;
+              "
+            >
+              🔄 بدء أسبوع جديد
+            </button>
             قبل رفع الملفات
           </span>
         </div>
@@ -1020,14 +1066,18 @@
       <div class="page" id="page-analytics">
         <div class="page-header">
           <div class="page-title">التحليلات البيانية</div>
-          <div class="page-sub">رسوم بيانية تفاعلية لأداء التحصيل والمبيعات</div>
+          <div class="page-sub">
+            رسوم بيانية تفاعلية لأداء التحصيل والمبيعات
+          </div>
         </div>
 
         <div class="charts-grid">
           <!-- Chart 1: Orders per Platform (Donut) -->
           <div class="chart-card">
             <div class="chart-title">🍚 توزيع الطلبات حسب المنصة</div>
-            <div class="chart-wrap"><canvas id="chartPlatformOrders"></canvas></div>
+            <div class="chart-wrap">
+              <canvas id="chartPlatformOrders"></canvas>
+            </div>
           </div>
 
           <!-- Chart 2: Payment Status (Donut) -->
@@ -1039,13 +1089,17 @@
           <!-- Chart 3: Expected vs Collected per Platform (Bar) -->
           <div class="chart-card full">
             <div class="chart-title">💰 المبيعات مقابل التحصيل لكل منصة</div>
-            <div class="chart-wrap tall"><canvas id="chartPlatformAmounts"></canvas></div>
+            <div class="chart-wrap tall">
+              <canvas id="chartPlatformAmounts"></canvas>
+            </div>
           </div>
 
           <!-- Chart 4: Weekly Trend (Line) -->
           <div class="chart-card full">
             <div class="chart-title">📈 اتجاه الطلبات الأسبوعية</div>
-            <div class="chart-wrap tall"><canvas id="chartWeekly"></canvas></div>
+            <div class="chart-wrap tall">
+              <canvas id="chartWeekly"></canvas>
+            </div>
           </div>
         </div>
       </div>
@@ -1058,28 +1112,131 @@
         </div>
 
         <!-- Developer Card -->
-        <div class="card" style="max-width:600px;margin:0 auto 24px;text-align:center;padding:40px 32px">
-          <div style="width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;font-size:40px;margin:0 auto 20px;box-shadow:0 0 30px rgba(34,211,238,0.3)">👨‍💻</div>
+        <div
+          class="card"
+          style="
+            max-width: 600px;
+            margin: 0 auto 24px;
+            text-align: center;
+            padding: 40px 32px;
+          "
+        >
+          <div
+            style="
+              width: 90px;
+              height: 90px;
+              border-radius: 50%;
+              background: linear-gradient(
+                135deg,
+                var(--cyan),
+                var(--blue),
+                var(--purple)
+              );
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 40px;
+              margin: 0 auto 20px;
+              box-shadow: 0 0 30px rgba(34, 211, 238, 0.3);
+            "
+          >
+            👨‍💻
+          </div>
 
-          <div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:6px">Abdelrhaman Wael Mohammed</div>
-          <div style="font-size:13px;color:var(--cyan);font-weight:600;margin-bottom:20px">Full-Stack Developer &amp; Data Engineer</div>
+          <div
+            style="
+              font-size: 22px;
+              font-weight: 800;
+              color: var(--text);
+              margin-bottom: 6px;
+            "
+          >
+            Abdelrhaman Wael Mohammed
+          </div>
+          <div
+            style="
+              font-size: 13px;
+              color: var(--cyan);
+              font-weight: 600;
+              margin-bottom: 20px;
+            "
+          >
+            Full-Stack Developer &amp; Data Engineer
+          </div>
 
-          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:28px">
-            <a href="mailto:abdelrhamanwael8@gmail.com"
-               style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.2);color:var(--cyan);font-size:13px;font-weight:600;text-decoration:none;transition:0.2s"
-               onmouseover="this.style.background='rgba(34,211,238,0.2)'" onmouseout="this.style.background='rgba(34,211,238,0.1)'">
+          <div
+            style="
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              flex-wrap: wrap;
+              margin-bottom: 28px;
+            "
+          >
+            <a
+              href="mailto:abdelrhamanwael8@gmail.com"
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 18px;
+                border-radius: 10px;
+                background: rgba(34, 211, 238, 0.1);
+                border: 1px solid rgba(34, 211, 238, 0.2);
+                color: var(--cyan);
+                font-size: 13px;
+                font-weight: 600;
+                text-decoration: none;
+                transition: 0.2s;
+              "
+              onmouseover="this.style.background = 'rgba(34,211,238,0.2)'"
+              onmouseout="this.style.background = 'rgba(34,211,238,0.1)'"
+            >
               📧 abdelrhamanwael8@gmail.com
             </a>
-            <a href="https://linkedin.com/in/abdelrhaman-wael-mohammed-790171366" target="_blank"
-               style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);color:var(--blue);font-size:13px;font-weight:600;text-decoration:none;transition:0.2s"
-               onmouseover="this.style.background='rgba(59,130,246,0.2)'" onmouseout="this.style.background='rgba(59,130,246,0.1)'">
+            <a
+              href="https://linkedin.com/in/abdelrhaman-wael-mohammed-790171366"
+              target="_blank"
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 18px;
+                border-radius: 10px;
+                background: rgba(59, 130, 246, 0.1);
+                border: 1px solid rgba(59, 130, 246, 0.2);
+                color: var(--blue);
+                font-size: 13px;
+                font-weight: 600;
+                text-decoration: none;
+                transition: 0.2s;
+              "
+              onmouseover="this.style.background = 'rgba(59,130,246,0.2)'"
+              onmouseout="this.style.background = 'rgba(59,130,246,0.1)'"
+            >
               🔗 LinkedIn Profile
             </a>
           </div>
 
-          <div style="border-top:1px solid var(--border);padding-top:20px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px;font-weight:600">تقنيات التطوير</div>
-            <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <div style="border-top: 1px solid var(--border); padding-top: 20px">
+            <div
+              style="
+                font-size: 12px;
+                color: var(--muted);
+                margin-bottom: 12px;
+                font-weight: 600;
+              "
+            >
+              تقنيات التطوير
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 8px;
+                justify-content: center;
+                flex-wrap: wrap;
+              "
+            >
               <span class="badge badge-cyan">Python</span>
               <span class="badge badge-blue">Flask</span>
               <span class="badge badge-emerald">Pandas</span>
@@ -1091,19 +1248,38 @@
         </div>
 
         <!-- System Info -->
-        <div class="card" style="max-width:600px;margin:0 auto">
+        <div class="card" style="max-width: 600px; margin: 0 auto">
           <div class="card-title">💻 معلومات النظام</div>
           <table>
-            <tr><td style="color:var(--muted);width:40%">اسم النظام</td><td style="font-weight:600">نظام ربط الطلبات والتحصيل</td></tr>
-            <tr><td style="color:var(--muted)">الإصدار</td><td style="font-weight:600">v2.0 — Flask Edition</td></tr>
-            <tr><td style="color:var(--muted)">تاريخ التطوير</td><td style="font-weight:600">February 2026</td></tr>
-            <tr><td style="color:var(--muted)">المطوّر</td><td style="font-weight:600">Abdelrhaman Wael Mohammed</td></tr>
-            <tr><td style="color:var(--muted)">المنصات المدعومة</td><td style="font-weight:600">Amazon · Noon · Trendyol · Ilasouq · Tabby · SMSA</td></tr>
-            <tr><td style="color:var(--muted)">قاعدة البيانات</td><td style="font-weight:600">SQLite (finance_system.db)</td></tr>
+            <tr>
+              <td style="color: var(--muted); width: 40%">اسم النظام</td>
+              <td style="font-weight: 600">نظام ربط الطلبات والتحصيل</td>
+            </tr>
+            <tr>
+              <td style="color: var(--muted)">الإصدار</td>
+              <td style="font-weight: 600">v2.0 — Flask Edition</td>
+            </tr>
+            <tr>
+              <td style="color: var(--muted)">تاريخ التطوير</td>
+              <td style="font-weight: 600">February 2026</td>
+            </tr>
+            <tr>
+              <td style="color: var(--muted)">المطوّر</td>
+              <td style="font-weight: 600">Abdelrhaman Wael Mohammed</td>
+            </tr>
+            <tr>
+              <td style="color: var(--muted)">المنصات المدعومة</td>
+              <td style="font-weight: 600">
+                Amazon · Noon · Trendyol · Ilasouq · Tabby · SMSA
+              </td>
+            </tr>
+            <tr>
+              <td style="color: var(--muted)">قاعدة البيانات</td>
+              <td style="font-weight: 600">SQLite (finance_system.db)</td>
+            </tr>
           </table>
         </div>
       </div>
-
     </main>
 
     <!-- ── Toast Container ── -->
@@ -1111,14 +1287,26 @@
 
     <script>
       // ── Navigation ──────────────────────────────────────────────
-      const PAGES = ['dashboard','upload','process','analytics','reports','about'];
+      const PAGES = [
+        "dashboard",
+        "upload",
+        "process",
+        "analytics",
+        "reports",
+        "about",
+      ];
       function showPage(name) {
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        document.getElementById('page-' + name).classList.add('active');
+        document
+          .querySelectorAll(".page")
+          .forEach((p) => p.classList.remove("active"));
+        document
+          .querySelectorAll(".nav-item")
+          .forEach((n) => n.classList.remove("active"));
+        document.getElementById("page-" + name).classList.add("active");
         const idx = PAGES.indexOf(name);
-        if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
-        if (name === 'analytics') loadCharts();
+        if (idx >= 0)
+          document.querySelectorAll(".nav-item")[idx].classList.add("active");
+        if (name === "analytics") loadCharts();
       }
 
       // ── Toast ────────────────────────────────────────────────────
@@ -1277,6 +1465,7 @@
             }
 
             showToast("تمت المعالجة بنجاح! التقرير جاهز للتحميل.", "success");
+            chartsLoaded = false; // Force charts reload on next view
           })
           .catch((err) => {
             logBox.textContent += "\n[ERROR] " + err;
@@ -1294,32 +1483,42 @@
 
       // ── New Week ─────────────────────────────────────────────────
       function startNewWeek() {
-        if (!confirm(
-          '🗓️ بدء أسبوع جديد\n\nسيتم حذف:\n• جميع بيانات الطلبات والتحصيل من قاعدة البيانات\n• جميع الملفات المرفوعة من مجلد samples\n\n✅ ستظل جميع التقارير السابقة محفوظة\n\nهل تريد المتابعة؟'
-        )) return;
+        if (
+          !confirm(
+            "🗓️ بدء أسبوع جديد\n\nسيتم حذف:\n• جميع بيانات الطلبات والتحصيل من قاعدة البيانات\n• جميع الملفات المرفوعة من مجلد samples\n\n✅ ستظل جميع التقارير السابقة محفوظة\n\nهل تريد المتابعة؟",
+          )
+        )
+          return;
 
-        fetch('/new-week', { method: 'POST' })
-          .then(r => r.json())
-          .then(data => {
+        fetch("/new-week", { method: "POST" })
+          .then((r) => r.json())
+          .then((data) => {
             if (data.success) {
-              showToast(data.message, 'success');
+              showToast(data.message, "success");
               // Reset KPIs
-              ['kpi-orders','kpi-expected','kpi-collected','kpi-rate','kpi-collections']
-                .forEach(id => {
-                  const el = document.getElementById(id);
-                  if (el) el.textContent = '0';
-                });
+              [
+                "kpi-orders",
+                "kpi-expected",
+                "kpi-collected",
+                "kpi-rate",
+                "kpi-collections",
+              ].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = "0";
+              });
               // Clear platform table
-              const pt = document.getElementById('platform-table');
-              if (pt) pt.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">لا توجد بيانات بعد. قم برفع الملفات أولاً.</td></tr>';
+              const pt = document.getElementById("platform-table");
+              if (pt)
+                pt.innerHTML =
+                  '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">لا توجد بيانات بعد. قم برفع الملفات أولاً.</td></tr>';
               // Refresh file list & navigate to upload
               refreshFiles();
-              setTimeout(() => showPage('upload'), 800);
+              setTimeout(() => showPage("upload"), 800);
             } else {
-              showToast(data.message, 'error');
+              showToast(data.message, "error");
             }
           })
-          .catch(() => showToast('حدث خطأ غير متوقع', 'error'));
+          .catch(() => showToast("حدث خطأ غير متوقع", "error"));
       }
 
       // ── Reset DB (legacy) ───────────────────────────────────────
@@ -1339,104 +1538,257 @@
       }
 
       // ── Charts ───────────────────────────────────────────────────
+      // ── Charts ───────────────────────────────────────────────────
       let chartsLoaded = false;
+      let chartInstances = {}; // Store chart instances to destroy them later
+
       const CHART_COLORS = {
-        cyan:    'rgba(34,211,238,0.85)',
-        blue:    'rgba(59,130,246,0.85)',
-        emerald: 'rgba(16,185,129,0.85)',
-        amber:   'rgba(245,158,11,0.85)',
-        rose:    'rgba(244,63,94,0.85)',
-        purple:  'rgba(167,139,250,0.85)',
+        cyan: "rgba(34,211,238,0.85)",
+        blue: "rgba(59,130,246,0.85)",
+        emerald: "rgba(16,185,129,0.85)",
+        amber: "rgba(245,158,11,0.85)",
+        rose: "rgba(244,63,94,0.85)",
+        purple: "rgba(167,139,250,0.85)",
       };
-      const PLATFORM_COLORS = [CHART_COLORS.amber, CHART_COLORS.cyan, CHART_COLORS.emerald, CHART_COLORS.purple, CHART_COLORS.rose];
-      const STATUS_COLORS   = [CHART_COLORS.emerald, CHART_COLORS.rose, CHART_COLORS.amber, CHART_COLORS.blue];
+      const PLATFORM_COLORS = [
+        CHART_COLORS.amber,
+        CHART_COLORS.cyan,
+        CHART_COLORS.emerald,
+        CHART_COLORS.purple,
+        CHART_COLORS.rose,
+      ];
+      const STATUS_COLORS = [
+        CHART_COLORS.emerald,
+        CHART_COLORS.rose,
+        CHART_COLORS.amber,
+        CHART_COLORS.blue,
+      ];
 
       const chartDefaults = {
-        plugins: { legend: { labels: { color: '#94a3b8', font: { family: 'Tajawal', size: 12 } } } },
-        scales: {
-          x: { ticks: { color: '#94a3b8', font: { family: 'Tajawal' } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-          y: { ticks: { color: '#94a3b8', font: { family: 'Tajawal' } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        plugins: {
+          legend: {
+            labels: { color: "#94a3b8", font: { family: "Tajawal", size: 12 } },
+          },
         },
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 800, easing: 'easeInOutQuart' },
+        scales: {
+          x: {
+            ticks: { color: "#94a3b8", font: { family: "Tajawal" } },
+            grid: { color: "rgba(255,255,255,0.05)" },
+          },
+          y: {
+            ticks: { color: "#94a3b8", font: { family: "Tajawal" } },
+            grid: { color: "rgba(255,255,255,0.05)" },
+          },
+        },
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 800, easing: "easeInOutQuart" },
       };
 
+      function destroyChart(id) {
+        if (chartInstances[id]) {
+          chartInstances[id].destroy();
+          delete chartInstances[id];
+        }
+      }
+
       function loadCharts() {
-        if (chartsLoaded) return;
+        // Always reload if chartsLoaded is false (which we set to false after process)
+        if (chartsLoaded && Object.keys(chartInstances).length > 0) return;
         chartsLoaded = true;
 
-        fetch('/api/charts').then(r => r.json()).then(data => {
-          if (data.error) { showToast('خطأ في تحميل البيانات: ' + data.error, 'error'); return; }
+        fetch("/api/charts")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.error) {
+              showToast("خطأ في تحميل البيانات: " + data.error, "error");
+              return;
+            }
 
-          // 1. Platform Orders Donut
-          new Chart(document.getElementById('chartPlatformOrders'), {
-            type: 'doughnut',
-            data: {
-              labels: data.platforms.labels,
-              datasets: [{ data: data.platforms.orders, backgroundColor: PLATFORM_COLORS,
-                borderColor: '#111827', borderWidth: 3 }]
-            },
-            options: { ...chartDefaults, cutout: '65%',
-              plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Tajawal', size: 12 }, padding: 16 } } },
-              scales: {} }
-          });
-
-          // 2. Payment Status Donut
-          new Chart(document.getElementById('chartStatus'), {
-            type: 'doughnut',
-            data: {
-              labels: data.status.labels,
-              datasets: [{ data: data.status.values, backgroundColor: STATUS_COLORS,
-                borderColor: '#111827', borderWidth: 3 }]
-            },
-            options: { ...chartDefaults, cutout: '65%',
-              plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Tajawal', size: 12 }, padding: 16 } } },
-              scales: {} }
-          });
-
-          // 3. Expected vs Collected Bar
-          new Chart(document.getElementById('chartPlatformAmounts'), {
-            type: 'bar',
-            data: {
-              labels: data.platforms.labels,
-              datasets: [
-                { label: 'المبلغ المتوقع', data: data.platforms.expected,
-                  backgroundColor: 'rgba(59,130,246,0.7)', borderColor: CHART_COLORS.blue, borderWidth: 2, borderRadius: 8 },
-                { label: 'المبلغ المحصل', data: data.platforms.collected,
-                  backgroundColor: 'rgba(16,185,129,0.7)', borderColor: CHART_COLORS.emerald, borderWidth: 2, borderRadius: 8 },
-              ]
-            },
-            options: { ...chartDefaults, plugins: { legend: { labels: { color: '#94a3b8', font: { family: 'Tajawal', size: 12 } } } } }
-          });
-
-          // 4. Weekly Trend Line
-          if (data.weekly.labels.length > 0) {
-            new Chart(document.getElementById('chartWeekly'), {
-              type: 'line',
-              data: {
-                labels: data.weekly.labels,
-                datasets: [
-                  { label: 'عدد الطلبات', data: data.weekly.orders, yAxisID: 'y',
-                    borderColor: CHART_COLORS.cyan, backgroundColor: 'rgba(34,211,238,0.1)',
-                    fill: true, tension: 0.4, pointBackgroundColor: CHART_COLORS.cyan, pointRadius: 5 },
-                  { label: 'إجمالي المبيعات (ر.س)', data: data.weekly.totals, yAxisID: 'y1',
-                    borderColor: CHART_COLORS.purple, backgroundColor: 'rgba(167,139,250,0.1)',
-                    fill: true, tension: 0.4, pointBackgroundColor: CHART_COLORS.purple, pointRadius: 5 },
-                ]
+            // 1. Platform Orders Donut
+            destroyChart("chartPlatformOrders");
+            chartInstances["chartPlatformOrders"] = new Chart(
+              document.getElementById("chartPlatformOrders"),
+              {
+                type: "doughnut",
+                data: {
+                  labels: data.platforms.labels,
+                  datasets: [
+                    {
+                      data: data.platforms.orders,
+                      backgroundColor: PLATFORM_COLORS,
+                      borderColor: "#111827",
+                      borderWidth: 3,
+                    },
+                  ],
+                },
+                options: {
+                  ...chartDefaults,
+                  cutout: "65%",
+                  plugins: {
+                    legend: {
+                      position: "bottom",
+                      labels: {
+                        color: "#94a3b8",
+                        font: { family: "Tajawal", size: 12 },
+                        padding: 16,
+                      },
+                    },
+                  },
+                  scales: {},
+                },
               },
-              options: { ...chartDefaults,
-                scales: {
-                  x:  { ticks: { color: '#94a3b8', font: { family: 'Tajawal' } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                  y:  { type: 'linear', position: 'right', ticks: { color: '#94a3b8', font: { family: 'Tajawal' } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                  y1: { type: 'linear', position: 'left',  ticks: { color: '#94a3b8', font: { family: 'Tajawal' } }, grid: { drawOnChartArea: false } },
-                }
-              }
-            });
-          } else {
-            document.getElementById('chartWeekly').parentElement.innerHTML =
-              '<p style="color:var(--muted);text-align:center;padding:40px">لا توجد بيانات أسبوعية بعد</p>';
-          }
-        }).catch(e => showToast('خطأ في تحميل الرسوم', 'error'));
+            );
+
+            // 2. Payment Status Donut
+            destroyChart("chartStatus");
+            chartInstances["chartStatus"] = new Chart(
+              document.getElementById("chartStatus"),
+              {
+                type: "doughnut",
+                data: {
+                  labels: data.status.labels,
+                  datasets: [
+                    {
+                      data: data.status.values,
+                      backgroundColor: STATUS_COLORS,
+                      borderColor: "#111827",
+                      borderWidth: 3,
+                    },
+                  ],
+                },
+                options: {
+                  ...chartDefaults,
+                  cutout: "65%",
+                  plugins: {
+                    legend: {
+                      position: "bottom",
+                      labels: {
+                        color: "#94a3b8",
+                        font: { family: "Tajawal", size: 12 },
+                        padding: 16,
+                      },
+                    },
+                  },
+                  scales: {},
+                },
+              },
+            );
+
+            // 3. Expected vs Collected Bar
+            destroyChart("chartPlatformAmounts");
+            chartInstances["chartPlatformAmounts"] = new Chart(
+              document.getElementById("chartPlatformAmounts"),
+              {
+                type: "bar",
+                data: {
+                  labels: data.platforms.labels,
+                  datasets: [
+                    {
+                      label: "المبلغ المتوقع",
+                      data: data.platforms.expected,
+                      backgroundColor: "rgba(59,130,246,0.7)",
+                      borderColor: CHART_COLORS.blue,
+                      borderWidth: 2,
+                      borderRadius: 8,
+                    },
+                    {
+                      label: "المبلغ المحصل",
+                      data: data.platforms.collected,
+                      backgroundColor: "rgba(16,185,129,0.7)",
+                      borderColor: CHART_COLORS.emerald,
+                      borderWidth: 2,
+                      borderRadius: 8,
+                    },
+                  ],
+                },
+                options: {
+                  ...chartDefaults,
+                  plugins: {
+                    legend: {
+                      labels: {
+                        color: "#94a3b8",
+                        font: { family: "Tajawal", size: 12 },
+                      },
+                    },
+                  },
+                },
+              },
+            );
+
+            // 4. Weekly Trend Line
+            if (data.weekly.labels.length > 0) {
+              destroyChart("chartWeekly");
+              chartInstances["chartWeekly"] = new Chart(
+                document.getElementById("chartWeekly"),
+                {
+                  type: "line",
+                  data: {
+                    labels: data.weekly.labels,
+                    datasets: [
+                      {
+                        label: "عدد الطلبات",
+                        data: data.weekly.orders,
+                        yAxisID: "y",
+                        borderColor: CHART_COLORS.cyan,
+                        backgroundColor: "rgba(34,211,238,0.1)",
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: CHART_COLORS.cyan,
+                        pointRadius: 5,
+                      },
+                      {
+                        label: "إجمالي المبيعات (ر.س)",
+                        data: data.weekly.totals,
+                        yAxisID: "y1",
+                        borderColor: CHART_COLORS.purple,
+                        backgroundColor: "rgba(167,139,250,0.1)",
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: CHART_COLORS.purple,
+                        pointRadius: 5,
+                      },
+                    ],
+                  },
+                  options: {
+                    ...chartDefaults,
+                    scales: {
+                      x: {
+                        ticks: {
+                          color: "#94a3b8",
+                          font: { family: "Tajawal" },
+                        },
+                        grid: { color: "rgba(255,255,255,0.05)" },
+                      },
+                      y: {
+                        type: "linear",
+                        position: "right",
+                        ticks: {
+                          color: "#94a3b8",
+                          font: { family: "Tajawal" },
+                        },
+                        grid: { color: "rgba(255,255,255,0.05)" },
+                      },
+                      y1: {
+                        type: "linear",
+                        position: "left",
+                        ticks: {
+                          color: "#94a3b8",
+                          font: { family: "Tajawal" },
+                        },
+                        grid: { drawOnChartArea: false },
+                      },
+                    },
+                  },
+                },
+              );
+            } else {
+              destroyChart("chartWeekly");
+              document.getElementById("chartWeekly").parentElement.innerHTML =
+                '<canvas id="chartWeekly"></canvas><p style="color:var(--muted);text-align:center;padding:40px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">لا توجد بيانات أسبوعية بعد</p>';
+            }
+          })
+          .catch((e) => showToast("خطأ في تحميل الرسوم", "error"));
       }
 
       // ── Init ───────────────────────────────────────────────────
