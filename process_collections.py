@@ -34,6 +34,7 @@ import pandas as pd
 import sqlite3
 import os
 import csv
+import tempfile
 from datetime import datetime
 
 # Configuration
@@ -70,12 +71,15 @@ def read_file_with_header(file_path, header_row=0):
     try:
         ext = os.path.splitext(file_path)[1].lower()
         if ext in ['.xls', '.xlsx']:
-            df = pd.read_excel(file_path, header=header_row)
+            with open(file_path, 'rb') as f:
+                df = pd.read_excel(f, header=header_row)
         elif ext in ['.csv', '.txt']:
             try:
-                df = pd.read_csv(file_path, header=header_row, encoding='utf-8-sig', sep=None, engine='python')
+                with open(file_path, 'rb') as f:
+                    df = pd.read_csv(f, header=header_row, encoding='utf-8-sig', sep=None, engine='python')
             except:
-                df = pd.read_csv(file_path, header=header_row, encoding='latin1')
+                with open(file_path, 'rb') as f:
+                    df = pd.read_csv(f, header=header_row, encoding='latin1')
         return normalize_columns(df)
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
@@ -88,15 +92,24 @@ def detect_account_name(filename):
            'كشف-حساب-العمليات-ترنديول-امواج.xlsx' -> 'أمواج'
     """
     fname = filename.lower()
+    
+    # 1. Hardcoded (Legacy)
     if 'امواج' in fname or 'amwaj' in fname:
         return 'أمواج'
     if 'ilasouq' in fname or 'ilasoq' in fname:
-        return 'ILASOQ'
+        return 'ILASOUQ'
+
+    # 2. Dynamic: [AccountName]
+    import re
+    match = re.search(r'\[(.*?)\]', filename)
+    if match:
+        return match.group(1).strip()
+
     return ''
 
 def insert_collection(cursor, snapshot_id, order_id, original_amount,
                       collection_fee, collected_amount, collection_date,
-                      is_return=0, account_name=''):
+                      is_return=0, account_name='', platform=''):
     """
     إدراج سجل تحصيل واحد مع التحقق من التكرار
     Returns True if inserted, False if duplicate
@@ -118,11 +131,11 @@ def insert_collection(cursor, snapshot_id, order_id, original_amount,
         cursor.execute('''
             INSERT INTO collections
             (snapshot_id, order_id, original_amount, collection_fee,
-             collected_amount, collection_date, is_return, account_name,
+             collected_amount, collection_date, is_return, account_name, platform,
              week_number, year)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (snapshot_id, order_id, original_amount, collection_fee,
-              collected_amount, dt_str, is_return, account_name, wk, yr))
+              collected_amount, dt_str, is_return, account_name, platform, wk, yr))
         return True
     return False
 
@@ -156,7 +169,11 @@ def process_collections(snapshot_id=0):
             # ─────────────────────────────────────────────────────────────────
             if 'tabby' in fname_lower or 'تابي' in fname_lower:
                 platform_name = "Tabby"
-                df = read_file_with_header(path, header_row=10)
+                df = read_file_with_header(path, header_row=0)
+                if df is not None:
+                    col_map_test = {str(c).strip().lower() for c in df.columns}
+                    if 'order number' not in col_map_test and 'رقم الطلب' not in col_map_test:
+                        df = read_file_with_header(path, header_row=10)
                 if df is not None:
                     # تطبيع أسماء الأعمدة للمقارنة
                     col_map = {c.strip().lower(): c for c in df.columns}
@@ -233,27 +250,55 @@ def process_collections(snapshot_id=0):
                         print(f"  -> SMSA: لم يتم العثور على أعمدة أساسية. الأعمدة: {list(df.columns)}")
 
             # ── 3. ILASOUQ ELECTRONIC ────────────────────────────────────────
-            elif 'تحصيل-ilasouq' in fname_lower:
-                platform_name = "Ilasouq Electronic"
+            elif 'ilasouq' in fname_lower or 'سله' in fname_lower or 'salla' in fname_lower:
                 df = read_file_with_header(path, header_row=0)
                 if df is not None:
-                    col_amount = next((c for c in df.columns if 'بعد الضريبة' in c or 'إجمالي الطلب' in c), None)
+                    # Skip if it is the Orders file to prevent duplication
+                    if 'حالة الطلب' in df.columns and 'تحصيل' not in fname_lower:
+                        print(f"  -> Skipping order file {filename} from collections processing")
+                        continue
+                        
+                    platform_name = "Ilasouq"
+                    col_net = next((c for c in df.columns if 'بعد الضريبة' in c or 'المستحق' in c), None)
+                    col_total = next((c for c in df.columns if 'إجمالي الطلب' in c), None)
                     col_oid    = next((c for c in df.columns if 'رقم الطلب' in c), None)
-                    if col_amount and col_oid:
+                    col_pay    = next((c for c in df.columns if 'طريقة الدفع' in c or 'Payment Method' in c), None)
+
+                    if col_oid and (col_net or col_total):
                         for _, row in df.iterrows():
                             try:
                                 oid    = str(row[col_oid]).strip()
                                 if oid.lower() in ('nan', ''): continue
-                                amount = float(row[col_amount])
-                                date   = datetime.now().date()
-                                collections_data.append((oid, amount, 0.0, amount, date, 0))
+                                
+                                # Salla collection files typically have Net Amount explicitly
+                                if col_net and pd.notna(row.get(col_net)):
+                                    net_collected = float(row[col_net])
+                                    orig_amt = float(row[col_total]) if col_total and pd.notna(row.get(col_total)) else net_collected
+                                else:
+                                    orig_amt = float(row[col_total]) if col_total and pd.notna(row.get(col_total)) else 0.0
+                                    
+                                    pg_fee = 0.0
+                                    col_pg_fee = next((c for c in df.columns if any(k in c.lower() for k in ['payment fee', 'رسوم الدفع', 'عمولة الدفع الإلكتروني', 'fee', 'commission', 'عمولة', 'mada', 'visa'])), None)
+                                    if col_pg_fee and pd.notna(row.get(col_pg_fee)):
+                                        try: pg_fee = abs(float(row[col_pg_fee]))
+                                        except: pass
+                                    net_collected = orig_amt - pg_fee
+
+                                fee = orig_amt - net_collected if orig_amt >= net_collected else 0.0
+
+                                col_date = next((c for c in df.columns if 'تاريخ' in c and 'الطلب' not in c), None)
+                                if not col_date:
+                                    col_date = next((c for c in df.columns if 'تاريخ الطلب' in c), None)
+                                date = parse_date(row[col_date]) if col_date and pd.notna(row.get(col_date)) else datetime.now().date()
+
+                                collections_data.append((oid, orig_amt, fee, net_collected, date, 0))
                             except: continue
 
             # ── 4. NOON STATEMENT (CSV) ───────────────────────────────────────
             # صلة الوصل: order_nr
             # ─────────────────────────────────────────────────────────────────
             elif 'noon' in fname_lower or 'كشف-حساب-نون' in fname_lower or 'نون' in fname_lower:
-                platform_name = "Noon Statement"
+                platform_name = "Noon"
                 print(f"Processing {filename} as {platform_name}...")
                 df = read_file_with_header(path, header_row=0)
                 if df is not None:
@@ -294,7 +339,7 @@ def process_collections(snapshot_id=0):
                  ('statement' in fname_lower or 'كشف' in fname_lower or 'عمليات' in fname_lower):
                 if 'sales' in fname_lower or 'مبيعات' in fname_lower:
                     continue  # ملف المبيعات يُعالج في process_data.py
-                platform_name = "Trendyol Statement"
+                platform_name = "Trendyol"
                 print(f"Processing {filename} as {platform_name}...")
                 df = read_file_with_header(path, header_row=0)
                 if df is not None:
@@ -329,48 +374,148 @@ def process_collections(snapshot_id=0):
 
             # ── 6. AMAZON STATEMENT ───────────────────────────────────────────
             elif 'المعاملات' in fname_lower or 'amazon' in fname_lower:
-                platform_name = "Amazon Statement"
+                platform_name = "Amazon"
+                processed_orders = {} # order_id -> [net_amount, date_obj]
+
+                # محاولة قراءة الملف (utf-8-sig ثم cp1256)
+                lines = []
+                encoding = 'utf-8-sig'
                 try:
-                    lines = []
+                    with open(path, 'r', encoding=encoding) as f: lines = f.readlines()
+                except:
+                    encoding = 'cp1256'
+                    with open(path, 'r', encoding=encoding) as f: lines = f.readlines()
+
+                if not lines: continue
+
+                # الكشف عن نوع الملف: هل هو ملف المعاملات (Transactions)؟
+                is_transaction_file = False
+                header_row = -1
+                
+                for i, line in enumerate(lines[:10]):
+                    if 'نوع المعاملة' in line and 'الإجمالي' in line:
+                        is_transaction_file = True
+                        header_row = i
+                        break
+                
+                if is_transaction_file:
+                    print(f"  -> Amazon Transaction File detected: {filename}")
                     try:
-                        with open(path, 'r', encoding='utf-8-sig') as f: lines = f.readlines()
-                    except:
-                        with open(path, 'r', encoding='cp1256') as f: lines = f.readlines()
+                        # Cleaning Malformed CSV Lines (Double quotes issue)
+                        cleaned_lines = []
+                        for line in lines[header_row:]:
+                            line = line.strip()
+                            # Heuristic: If line starts with " and looks like "val1,""val2""...
+                            if line.startswith('"') and ',""' in line:
+                                if line.startswith('"'): line = line[1:]
+                                if line.endswith('"'):   line = line[:-1]
+                                line = line.replace('""', '"')
+                            cleaned_lines.append(line)
+                        
+                        with tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8') as temp_f:
+                            temp_f.write("\n".join(cleaned_lines))
+                            temp_file_path = temp_f.name
+                        
+                        with open(temp_file_path, 'rb') as f_in:
+                            df = pd.read_csv(f_in, sep=',', engine='python')
+                        
+                        # Clean up the temporary file
+                        os.unlink(temp_file_path)
+                        
+                        # تنظيف أسماء الأعمدة
+                        df.columns = [str(c).replace('"', '').replace('=', '').strip() for c in df.columns]
+                        
+                        col_oid   = next((c for c in df.columns if 'رقم الطلب' in c), None)
+                        col_total = next((c for c in df.columns if 'الإجمالي' in c), None)
+                        col_date  = next((c for c in df.columns if 'التاريخ' in c), None)
 
-                    header_idx = -1
-                    for i, line in enumerate(lines[:20]):
-                        if 'رقم الطلب' in line or 'Order ID' in line:
-                            header_idx = i; break
-
-                    if header_idx != -1:
-                        headers = list(csv.reader([lines[header_idx]]))[0]
-                        if len(headers) < 2 and ',' in lines[header_idx]:
-                            headers = lines[header_idx].strip().replace('"', '').split(',')
-                        norm_headers = [h.replace('"', '').strip() for h in headers]
-
-                        oid_idx   = next((i for i, h in enumerate(norm_headers) if 'رقم الطلب' in h or 'Order ID' in h), -1)
-                        total_idx = next((i for i, h in enumerate(norm_headers) if 'الإجمالي' in h or 'Total' in h), -1)
-                        date_idx  = next((i for i, h in enumerate(norm_headers) if 'التاريخ' in h or 'Date' in h), -1)
-
-                        if oid_idx != -1 and total_idx != -1:
-                            reader = csv.reader(lines[header_idx+1:])
-                            for row in reader:
-                                if not row: continue
-                                if len(row) == 1 and ',' in row[0]: row = row[0].split(',')
-                                if len(row) <= max(oid_idx, total_idx): continue
-                                raw_oid = row[oid_idx].replace('"', '').replace('=', '').strip()
+                        if col_oid and col_total:
+                            for _, row in df.iterrows():
+                                raw_oid = str(row[col_oid]).replace('"', '').replace('=', '').strip()
                                 if len(raw_oid) < 5 or '-' not in raw_oid: continue
-                                raw_amt = row[total_idx].replace('"', '').replace('=', '').strip().replace(',', '')
-                                try: amount = float(raw_amt)
-                                except: continue
-                                date_val = row[date_idx] if date_idx != -1 and len(row) > date_idx else None
-                                date = parse_date(date_val)
-                                if amount != 0:
-                                    collections_data.append((raw_oid, abs(amount), 0.0, amount, date, 0))
-                except Exception as e:
-                    print(f"  Amazon Parse Error: {e}")
+                                
+                                try: 
+                                    val_str = str(row[col_total]).replace('"', '').replace('=', '').replace(',', '').strip()
+                                    amount = float(val_str)
+                                except: amount = 0.0
 
-            # ── 7. WEBSITE (موقع خاص) ─────────────────────────────────────────
+                                if raw_oid not in processed_orders:
+                                    # [amount, date_obj]
+                                    date_val = row[col_date] if col_date else None
+                                    date_obj = parse_date(date_val)
+                                    processed_orders[raw_oid] = [amount, date_obj]
+                                else:
+                                    processed_orders[raw_oid][0] += amount
+                                    # Keep the first valid date found
+                                    if not processed_orders[raw_oid][1] and col_date:
+                                         processed_orders[raw_oid][1] = parse_date(row[col_date])
+
+                            # تحويل النتائج للقائمة النهائية
+                            for oid, data in processed_orders.items():
+                                net_amt = data[0]
+                                date    = data[1]
+                                # Amazon Net: We trust the aggregation of 'Total' column
+                                collections_data.append((oid, abs(net_amt), 0.0, net_amt, date, 0))
+                                
+                    except Exception as e:
+                         print(f"  Amazon Transaction Parse Error: {e}")
+
+                else:
+                    # Fallback to older logic just in case
+                    try:
+                        header_idx = -1
+                        for i, line in enumerate(lines[:20]):
+                            if 'رقم الطلب' in line or 'Order ID' in line:
+                                header_idx = i; break
+
+                        if header_idx != -1:
+                            pass # Implement strictly if needed, but Transaction logic covers most cases
+                    except Exception as e:
+                        print(f"  Amazon Fallback Parse Error: {e}")
+
+            # ── 8. TAMARA ─────────────────────────────────────────────────────
+            elif 'tamara' in fname_lower or 'تمارا' in fname_lower:
+                platform_name = "Tamara"
+                df = read_file_with_header(path, header_row=1)
+                if df is not None:
+                    col_map = {c.strip().lower(): c for c in df.columns}
+                    
+                    col_oid = next((col_map[k] for k in col_map if 'merchant order id' in k), None)
+                    col_orig = next((col_map[k] for k in col_map if 'order amount' in k or 'مبلغ الطلب' in k), None)
+                    col_payable = next((col_map[k] for k in col_map if 'total payable to merchant' in k or 'إجمالي المستحق' in k), None)
+                    col_fee = next((col_map[k] for k in col_map if 'total fees' in k or 'إجمالي الرسوم' in k), None)
+                    col_vat = next((col_map[k] for k in col_map if 'vat collected' in k or 'ضريبة' in k), None)
+                    col_date = next((col_map[k] for k in col_map if 'event date' in k or 'transaction date' in k or 'تاريخ' in k), None)
+                    col_event = next((col_map[k] for k in col_map if 'event' in k or 'الحدث' in k), None)
+
+                    if col_oid and col_payable:
+                        for _, row in df.iterrows():
+                            try:
+                                raw_oid = str(row[col_oid]).strip()
+                                if raw_oid.lower() in ('nan', '', 'none'): continue
+                                try: oid = str(int(float(raw_oid)))
+                                except: oid = raw_oid
+
+                                orig_amt = float(row[col_orig]) if col_orig and pd.notna(row.get(col_orig)) else 0.0
+                                payable  = float(row[col_payable]) if pd.notna(row.get(col_payable)) else 0.0
+                                
+                                fee1 = float(row[col_fee]) if col_fee and pd.notna(row.get(col_fee)) else 0.0
+                                fee2 = float(row[col_vat]) if col_vat and pd.notna(row.get(col_vat)) else 0.0
+                                total_deduction = fee1 + fee2
+
+                                date = parse_date(row[col_date]) if col_date else None
+                                
+                                event_str = str(row.get(col_event, '')).strip().lower() if col_event else ''
+                                is_ret = 1 if 'refund' in event_str or 'مسترجع' in event_str else 0
+
+                                if payable != 0:
+                                    collections_data.append((oid, orig_amt, total_deduction, payable, date, is_ret))
+                            except Exception as ex:
+                                continue
+                    else:
+                        print(f"  -> Tamara: لم يتم العثور على أعمدة أساسية. الأعمدة: {list(df.columns)}")
+
+            # ── 9. WEBSITE (موقع خاص) ─────────────────────────────────────────
             elif any(k in fname_lower for k in ['website', 'موقع', 'site', 'web', 'store', 'متجر']):
                 platform_name = "Website"
                 df = read_file_with_header(path, header_row=0)
@@ -395,7 +540,7 @@ def process_collections(snapshot_id=0):
                 inserted_count = 0
                 for item in collections_data:
                     oid, orig_amt, fee, collected, dt, is_ret = item
-                    if insert_collection(cursor, snapshot_id, oid, orig_amt, fee, collected, dt, is_ret, account):
+                    if insert_collection(cursor, snapshot_id, oid, orig_amt, fee, collected, dt, is_ret, account, platform_name):
                         inserted_count += 1
 
                 conn.commit()

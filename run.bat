@@ -32,15 +32,23 @@ if %errorlevel% neq 0 (
 
 REM ── Step 1: Check Libraries ────────────────────────────────────
 echo  [ 1 / 4 ]  Checking required libraries...
-pip show flask >nul 2>&1
+python -m pip show flask >nul 2>&1
 if %errorlevel% neq 0 (
-    echo  [ ... ]  Installing required libraries, please wait...
-    pip install -r requirements.txt >nul 2>&1
+    echo  [ ... ]  Installing required libraries...
+    python -m pip install -r requirements.txt
     if %errorlevel% neq 0 (
-        color 0C
-        echo  [  X  ]  Failed to install libraries!
-        pause
-        exit /b 1
+        echo.
+        echo  [ ... ]  Retrying installation with --user flag...
+        python -m pip install --user -r requirements.txt
+        if %errorlevel% neq 0 (
+            color 0C
+            echo.
+            echo  [  X  ]  Failed to install libraries!
+            echo           Please check errors above.
+            echo.
+            pause
+            exit /b 1
+        )
     )
     echo  [ OK  ]  Libraries installed successfully
 ) else (

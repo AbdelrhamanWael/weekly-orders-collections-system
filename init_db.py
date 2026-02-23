@@ -46,13 +46,23 @@ def create_database():
         snapshot_id  INTEGER NOT NULL DEFAULT 0,
         platform     TEXT NOT NULL,
         account_name TEXT DEFAULT '',
+        country      TEXT DEFAULT 'SA',
         order_date   DATE,
         price        REAL DEFAULT 0,
         cost         REAL DEFAULT 0,
         shipping     REAL DEFAULT 0,
+        cod_fee      REAL DEFAULT 0,
         commission   REAL DEFAULT 0,
         tax          REAL DEFAULT 0,
         items_summary TEXT DEFAULT '',
+        payment_method TEXT DEFAULT '',
+        salla_status TEXT DEFAULT '',
+        order_url    TEXT DEFAULT '',
+        city         TEXT DEFAULT '',
+        shipping_company TEXT DEFAULT '',
+        tracking_number TEXT DEFAULT '',
+        discount_value REAL DEFAULT 0,
+        marketing_source TEXT DEFAULT '',
         week_number  INTEGER,
         year         INTEGER,
         upload_date  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -60,6 +70,17 @@ def create_database():
         FOREIGN KEY (snapshot_id) REFERENCES weekly_snapshots(snapshot_id)
     )
     ''')
+    # Migration: add columns to existing tables if missing
+    _migrate_add_column(cursor, "orders", "salla_status", "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders", "order_url", "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders", "cod_fee", "REAL DEFAULT 0")
+    
+    # New Extended Salla Dimensions
+    _migrate_add_column(cursor, "orders", "city", "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders", "shipping_company", "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders", "tracking_number", "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders", "discount_value", "REAL DEFAULT 0")
+    _migrate_add_column(cursor, "orders", "marketing_source", "TEXT DEFAULT ''")
 
     # ─────────────────────────────────────────────────────────
     # 3. Collections Table  (snapshot_id column added)
@@ -74,6 +95,7 @@ def create_database():
         collected_amount REAL,
         collection_date  DATE,
         is_return        INTEGER DEFAULT 0,
+        platform         TEXT DEFAULT '',
         account_name     TEXT DEFAULT '',
         week_number      INTEGER,
         year             INTEGER,
@@ -122,16 +144,64 @@ def create_database():
     ''')
 
     # ─────────────────────────────────────────────────────────
-    # Migration: add snapshot_id to existing tables if missing
+    # 6. Accounts Table (NEW for Scalability)
+    # ─────────────────────────────────────────────────────────
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform_name TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            country TEXT DEFAULT 'SA',
+            fixed_shipping_cost REAL DEFAULT 0,
+            cost_includes_tax INTEGER DEFAULT 0,
+            payment_commission_rate REAL DEFAULT 0,
+            tax_rate REAL DEFAULT 0,
+            client_shipping_cost REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(platform_name, account_name)
+        )
+    ''')
+
+    # ─────────────────────────────────────────────────────────
+    # 7. Product Costs Table (NEW)
+    # ─────────────────────────────────────────────────────────
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS product_costs (
+        sku           TEXT PRIMARY KEY,
+        product_name  TEXT,
+        cost          REAL DEFAULT 0,
+        updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # ─────────────────────────────────────────────────────────
+    # 8. Physical Returns Table (NEW)
+    # ─────────────────────────────────────────────────────────
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS physical_returns (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        tracking_id   TEXT NOT NULL UNIQUE,
+        scanned_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes         TEXT DEFAULT ''
+    )
+    ''')
+
+    # ─────────────────────────────────────────────────────────
+    # Migration: add columns to existing tables if missing
     # ─────────────────────────────────────────────────────────
     _migrate_add_column(cursor, "orders",         "snapshot_id",     "INTEGER NOT NULL DEFAULT 0")
     _migrate_add_column(cursor, "orders",         "account_name",    "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders",         "country",         "TEXT DEFAULT 'SA'")
     _migrate_add_column(cursor, "orders",         "items_summary",   "TEXT DEFAULT ''")
+    _migrate_add_column(cursor, "orders",         "payment_method",  "TEXT DEFAULT ''")
+    
     _migrate_add_column(cursor, "collections",    "snapshot_id",     "INTEGER NOT NULL DEFAULT 0")
     _migrate_add_column(cursor, "collections",    "original_amount", "REAL DEFAULT 0")
     _migrate_add_column(cursor, "collections",    "collection_fee",  "REAL DEFAULT 0")
     _migrate_add_column(cursor, "collections",    "is_return",       "INTEGER DEFAULT 0")
+    _migrate_add_column(cursor, "collections",    "platform",        "TEXT DEFAULT ''")
     _migrate_add_column(cursor, "collections",    "account_name",    "TEXT DEFAULT ''")
+    
     # weekly_reports — migrate old schema to new
     _migrate_add_column(cursor, "weekly_reports", "snapshot_id",     "INTEGER UNIQUE")
     _migrate_add_column(cursor, "weekly_reports", "label",           "TEXT DEFAULT ''")
@@ -141,13 +211,34 @@ def create_database():
     _migrate_add_column(cursor, "weekly_reports", "partial_count",   "INTEGER DEFAULT 0")
     _migrate_add_column(cursor, "weekly_reports", "report_path",     "TEXT DEFAULT ''")
 
+    # accounts — new settings columns
+    _migrate_add_column(cursor, "accounts", "fixed_shipping_cost",     "REAL DEFAULT 0")
+    _migrate_add_column(cursor, "accounts", "cost_includes_tax",       "INTEGER DEFAULT 0")
+    _migrate_add_column(cursor, "accounts", "payment_commission_rate", "REAL DEFAULT 0")
+    _migrate_add_column(cursor, "accounts", "tax_rate",                "REAL DEFAULT 0")
+    _migrate_add_column(cursor, "accounts", "client_shipping_cost",    "REAL DEFAULT 0")
+
+    # ─────────────────────────────────────────────────────────
+    # Seed Data
+    # ─────────────────────────────────────────────────────────
+    
+    # Insert Default Accounts with Country
+    default_accounts = [
+        ('Amazon', 'Amazon Account', 'SA'),
+        ('Noon', 'Noon Account', 'SA'),
+        ('Noon', 'Noon Riyadh', 'SA'),
+        ('Trendyol', 'Trendyol Account', 'SA'),
+        ('Ilasouq', 'Ilasouq Account', 'SA')
+    ]
+    for p, a, c in default_accounts:
+        cursor.execute("INSERT OR IGNORE INTO accounts (platform_name, account_name, country) VALUES (?, ?, ?)", (p, a, c))
+
     # Initialize default platforms
     platforms = [
         ('Ilasouq',  0, 0, 0),
         ('Noon',     0, 0, 0),
         ('Trendyol', 0, 0, 0),
-        ('Amazon',   0, 0, 0),
-        ('Website',  0, 0, 0),   # موقع خاص
+        ('Amazon',   0, 0, 0)
     ]
     cursor.executemany('''
     INSERT OR IGNORE INTO platforms (platform_name, commission_rate, tax_rate, shipping_default)
@@ -163,7 +254,7 @@ def create_database():
     conn.commit()
     conn.close()
     print(f"✅ Database {DB_NAME} initialized/migrated successfully.")
-    print("   Tables: orders, collections, platforms, weekly_reports, weekly_snapshots")
+    print("   Tables: orders, collections, platforms, weekly_reports, weekly_snapshots, accounts, product_costs")
 
 
 def _migrate_add_column(cursor, table, column, col_def):

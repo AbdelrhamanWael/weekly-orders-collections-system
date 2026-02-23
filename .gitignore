@@ -31,6 +31,8 @@ ENV/
 *.sqlite
 *.sqlite3
 data/
+database/
+finance_system.db
 
 # Temporary files
 temp/
@@ -48,9 +50,6 @@ temp/
 .DS_Store
 Thumbs.db
 
-# Streamlit
-.streamlit/
-
 # Uploaded client data files
 samples/
 reports/
@@ -58,7 +57,17 @@ reports/
 # Agent / IDE folders
 .agent/
 .qodo/
+.gemini/
 
-# Excel files (optional - uncomment if you don't want to track uploaded files)
-# *.xlsx
-# *.xls
+# Excel files and archives
+*.zip
+*.rar
+*.7z
+
+# Exclude all configuration and backup files that are not needed in source control
+*_old.py
+*_backup.py
+*.bak
+client_response.txt
+git_history.txt
+git_log.txt

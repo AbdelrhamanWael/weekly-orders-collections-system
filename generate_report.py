@@ -27,6 +27,7 @@ def generate_weekly_report(snapshot_id=0, label=''):
     conn = get_db_connection()
     
     # Query to join Orders and Collections, including cost fields for Net Profit
+    # Added LEFT JOIN for physical_returns to track physical receipt
     query = f'''
     SELECT 
         o.order_id,
@@ -40,6 +41,8 @@ def generate_weekly_report(snapshot_id=0, label=''):
         o.commission,
         o.tax,
         o.items_summary,
+        o.payment_method,
+        o.salla_status,
         COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.original_amount  ELSE 0 END), 0) AS original_collected,
         COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.collection_fee   ELSE 0 END), 0) AS total_collection_fee,
         COALESCE(SUM(CASE WHEN c.is_return=0 THEN c.collected_amount ELSE 0 END), 0) AS collected_amount,
@@ -47,10 +50,13 @@ def generate_weekly_report(snapshot_id=0, label=''):
         MAX(c.collection_date)                           AS last_collection_date,
         COUNT(CASE WHEN c.is_return=0 THEN 1 END)        AS transaction_count,
         COUNT(CASE WHEN c.is_return=1 THEN 1 END)        AS return_count,
-        MAX(c.account_name)                              AS collection_account
+        MAX(c.account_name)                              AS collection_account,
+        MAX(CASE WHEN pr.id IS NOT NULL THEN 1 ELSE 0 END) AS physical_receipt_flag
     FROM orders o
     LEFT JOIN collections c
         ON o.order_id = c.order_id AND c.snapshot_id = {snapshot_id}
+    LEFT JOIN physical_returns pr
+        ON o.order_id = pr.tracking_id OR o.tracking_number = pr.tracking_id
     WHERE o.snapshot_id = {snapshot_id}
     GROUP BY o.order_id
     ORDER BY o.platform, o.account_name, o.order_date
@@ -63,22 +69,22 @@ def generate_weekly_report(snapshot_id=0, label=''):
     df['net_profit'] = df['collected_amount'] - (
         df['cost'] + df['shipping'] + df['commission'] + df['tax'] + df['total_collection_fee']
     ) - df['returned_amount']
-    # الفرق = المبلغ الأصلي - صافي المحصل (يمثل عمولات التحصيل)
+    # Difference = Original - Net collected (represents collection fees theoretically)
     df['difference'] = df['original_collected'] - df['collected_amount']
+    
+    # Add Physical Receipt text (نعم / لا)
+    df['physical_receipt'] = df['physical_receipt_flag'].apply(lambda x: 'نعم' if x > 0 else 'لا')
     
     # Add Status Column
     def get_status(row):
         if row['return_count'] > 0 and row['transaction_count'] == 0:
             return 'مرتجع'
-        diff = row['expected_amount'] - row['collected_amount']
         if row['collected_amount'] == 0:
             return 'غير مدفوع'
-        elif abs(diff) < 0.1:
-            return 'مدفوع'
-        elif row['collected_amount'] > row['expected_amount']:
+        elif row['collected_amount'] > row['expected_amount'] + 0.1:
             return 'زيادة في التحصيل'
         else:
-            return 'مدفوع جزئياً'
+            return 'مدفوع'
 
     df['status'] = df.apply(get_status, axis=1)
     
@@ -88,7 +94,7 @@ def generate_weekly_report(snapshot_id=0, label=''):
         'expected_amount', 'original_collected', 'total_collection_fee', 'collected_amount',
         'returned_amount', 'difference',
         'cost', 'shipping', 'commission', 'tax', 'net_profit',
-        'status', 'items_summary', 'last_collection_date', 'transaction_count', 'return_count'
+        'status', 'physical_receipt', 'physical_receipt_flag', 'items_summary', 'payment_method', 'salla_status', 'last_collection_date', 'transaction_count', 'return_count'
     ]
     df = df[display_cols]
 
@@ -111,7 +117,10 @@ def generate_weekly_report(snapshot_id=0, label=''):
         'tax':                 'الضريبة',
         'net_profit':          'صافي الربح',
         'status':              'الحالة',
+        'physical_receipt':    'الاستلام الفعلي',
         'items_summary':       'الأصناف',
+        'payment_method':      'طريقة الدفع',
+        'salla_status':        'حالة سلة',
         'last_collection_date':'آخر تحصيل',
         'transaction_count':   'عدد الحركات',
         'return_count':        'عدد المرتجعات'
@@ -128,7 +137,6 @@ def generate_weekly_report(snapshot_id=0, label=''):
     collection_rate  = (total_collected / total_expected * 100) if total_expected > 0 else 0
     paid_count       = (df['status'] == 'مدفوع').sum()
     unpaid_count     = (df['status'] == 'غير مدفوع').sum()
-    partial_count    = (df['status'] == 'مدفوع جزئياً').sum()
     returned_count   = (df['status'] == 'مرتجع').sum()
     total_orders     = len(df)
 
@@ -229,7 +237,6 @@ def generate_weekly_report(snapshot_id=0, label=''):
             ("إجمالي الطلبات",    total_orders,    "D6E4F0"),
             ("مدفوع",             paid_count,      "E2EFDA"),
             ("غير مدفوع",         unpaid_count,    "FCE4D6"),
-            ("مدفوع جزئياً",      partial_count,   "FFF2CC"),
             ("مرتجع",             returned_count,  "F2DCDB"),
         ]
         
@@ -249,13 +256,49 @@ def generate_weekly_report(snapshot_id=0, label=''):
             ws.row_dimensions[9].height = 22
             ws.row_dimensions[10].height = 40
 
-        # Platform breakdown (Row 12)
+        # Physical Returns Warning (Row 12)
+        # Warning 1: Returned financially but NOT physically received (Risk of loss)
+        missing_physical = df[(df['status'] == 'مرتجع') & (df['physical_receipt_flag'] == 0)].shape[0]
+        # Warning 2: Physically received but NOT marked as returned financially (Need to process refund in system)
+        missed_refund = df[(df['physical_receipt_flag'] > 0) & (df['status'] != 'مرتجع')].shape[0]
+        
         ws.merge_cells('B12:I12')
-        ws['B12'].value = "التفصيل حسب المنصة"
+        ws['B12'].value = "تأكيدات المرتجعات (Physical vs Financial)"
         ws['B12'].font = Font(bold=True, color="FFFFFF", size=12)
-        ws['B12'].fill = PatternFill("solid", fgColor="2E75B6")
+        ws['B12'].fill = PatternFill("solid", fgColor="C00000") # Red Header
         ws['B12'].alignment = center_align
         ws.row_dimensions[12].height = 25
+        
+        warnings = [
+            ("في الكشوفات وغير مستلم فعلياً", missing_physical, "FCE4D6", "C00000"),
+            ("مستلم فعلياً وغير موجود بالكشوفات", missed_refund, "FFF2CC", "7F6000")
+        ]
+        
+        for i, (label, val, bg, fg) in enumerate(warnings):
+            col = get_column_letter(2 + i * 4)       # B, F
+            next_col = get_column_letter(5 + i * 4)  # E, I
+            ws.merge_cells(f'{col}13:{next_col}13')
+            ws.merge_cells(f'{col}14:{next_col}14')
+            ws[f'{col}13'].value = label
+            ws[f'{col}13'].font = Font(bold=True, color="595959", size=10)
+            ws[f'{col}13'].alignment = center_align
+            ws[f'{col}13'].fill = PatternFill("solid", fgColor=bg)
+            
+            ws[f'{col}14'].value = val
+            ws[f'{col}14'].font = Font(bold=True, color=fg, size=18)
+            ws[f'{col}14'].alignment = center_align
+            ws[f'{col}14'].fill = PatternFill("solid", fgColor=bg)
+            
+            ws.row_dimensions[13].height = 22
+            ws.row_dimensions[14].height = 40
+
+        # Platform breakdown (Row 16)
+        ws.merge_cells('B16:I16')
+        ws['B16'].value = "التفصيل حسب المنصة"
+        ws['B16'].font = Font(bold=True, color="FFFFFF", size=12)
+        ws['B16'].fill = PatternFill("solid", fgColor="2E75B6")
+        ws['B16'].alignment = center_align
+        ws.row_dimensions[16].height = 25
 
         platform_summary = df.groupby(['platform', 'account_name']).agg(
             orders=('order_id', 'count'),
@@ -270,16 +313,16 @@ def generate_weekly_report(snapshot_id=0, label=''):
         headers_ps = ['المنصة', 'الحساب', 'عدد الطلبات', 'المبلغ المتوقع',
                       'المبلغ الأصلي', 'عمولة التحصيل', 'صافي المحصل', 'المرتجعات', 'صافي الربح']
         for j, h in enumerate(headers_ps):
-            cell = ws.cell(row=13, column=2+j)
+            cell = ws.cell(row=17, column=2+j)
             cell.value = h
             cell.font = Font(bold=True, color="FFFFFF", size=10)
             cell.fill = PatternFill("solid", fgColor="1F3864")
             cell.alignment = center_align
             cell.border = thin_border
-        ws.row_dimensions[13].height = 22
+        ws.row_dimensions[17].height = 22
 
         for r_idx, row in platform_summary.iterrows():
-            row_num = 14 + r_idx
+            row_num = 18 + r_idx
             vals = [row['platform'], row['account_name'], row['orders'],
                     f"{row['expected']:,.2f}", f"{row['original']:,.2f}",
                     f"{row['fees']:,.2f}", f"{row['collected']:,.2f}",
@@ -415,6 +458,90 @@ def generate_weekly_report(snapshot_id=0, label=''):
         _style_data_sheet(ws4, df[df['status'] != 'مدفوع'],
                           PatternFill("solid", fgColor="C00000"), header_font, thin_border, center_align)
 
+        # =====================================================
+        # SHEET 7: Payment Methods Performance (أداء طرق الدفع)
+        # =====================================================
+        # Calculate performance per payment method
+        pm_df = df.copy()
+        
+        # Identify cancelled/returned orders for cancellation rate
+        # Here we consider returned > 0 or salla_status containing specific keywords as cancelled/returned
+        def is_cancelled(row):
+            if row['return_count'] > 0:
+                return True
+            status = str(row.get('salla_status', '')).strip().lower()
+            return 'ملغي' in status or 'مسترجع' in status or 'canceled' in status or 'cancelled' in status
+
+        pm_df['is_cancelled'] = pm_df.apply(is_cancelled, axis=1)
+        
+        # Group by payment method
+        # Filter out empty or 'Unknown' payment methods for clearer reporting if needed, 
+        # but here we keep all and group them.
+        pm_summary = pm_df.groupby('payment_method').agg(
+            total_orders=('order_id', 'count'),
+            expected_amount=('expected_amount', 'sum'),
+            cancelled_orders=('is_cancelled', 'sum'),
+            avg_order_value=('expected_amount', 'mean'),
+            assigned_commission=('commission', 'sum') # Or you can get it from another place, using sum of commission recorded
+        ).reset_index()
+
+        total_orders_all = pm_summary['total_orders'].sum()
+        
+        # Calculate percentages
+        pm_summary['order_percentage'] = (pm_summary['total_orders'] / total_orders_all * 100).fillna(0)
+        pm_summary['cancellation_rate'] = (pm_summary['cancelled_orders'] / pm_summary['total_orders'] * 100).fillna(0)
+        
+        # Sort by total orders descending
+        pm_summary = pm_summary.sort_values('total_orders', ascending=False)
+        
+        # Prepare for Display
+        headers_pm = ['طريقة الدفع', 'إجمالي عدد الطلبات', 'نسبة الطلبات (%)', 'إجمالي المبيعات (المتوقع)', 
+                      'متوسط قيمة الطلب', 'الطلبات الملغية / المرتجعة', 'معدل الإلغاء (%)', 'عمولة الدفع المعينة']
+        
+        # Create Sheet
+        pd.DataFrame().to_excel(writer, sheet_name='أداء طرق الدفع', index=False)
+        ws_pm = writer.sheets['أداء طرق الدفع']
+        ws_pm.sheet_view.rightToLeft = True
+
+        # Header Row Formatting
+        for j, h in enumerate(headers_pm):
+            cell = ws_pm.cell(row=1, column=1+j)
+            cell.value = h
+            cell.font = Font(bold=True, color="FFFFFF", size=10)
+            cell.fill = PatternFill("solid", fgColor="1F3864")
+            cell.alignment = center_align
+            cell.border = thin_border
+        ws_pm.row_dimensions[1].height = 25
+
+        # Data Rows Formatting
+        for r_idx, row in pm_summary.iterrows():
+            row_num = 2 + r_idx
+            
+            pay_method = row['payment_method'] if pd.notna(row['payment_method']) and str(row['payment_method']).strip() else 'غير محدد'
+            
+            vals = [
+                pay_method,
+                row['total_orders'],
+                f"{row['order_percentage']:.1f}%",
+                round(row['expected_amount'], 2),
+                round(row['avg_order_value'], 2),
+                row['cancelled_orders'],
+                f"{row['cancellation_rate']:.1f}%",
+                round(row['assigned_commission'], 2)
+            ]
+            
+            for j, v in enumerate(vals):
+                cell = ws_pm.cell(row=row_num, column=1+j)
+                cell.value = v
+                cell.alignment = center_align
+                cell.border = thin_border
+                cell.fill = PatternFill("solid", fgColor="F2F2F2" if r_idx % 2 == 0 else "FFFFFF")
+            ws_pm.row_dimensions[row_num].height = 20
+
+        # Adjust Column Widths
+        for col in range(1, len(headers_pm) + 1):
+            ws_pm.column_dimensions[get_column_letter(col)].width = 20
+
     # ── Save KPIs to weekly_reports table ──────────────────
     try:
         conn2 = get_db_connection()
@@ -432,7 +559,7 @@ def generate_weekly_report(snapshot_id=0, label=''):
             total_orders, round(total_expected, 2), round(total_collected, 2),
             round(total_expected - total_collected, 2),
             round(total_net_profit, 2), round(collection_rate, 1),
-            int(paid_count), int(unpaid_count), int(partial_count),
+            int(paid_count), int(unpaid_count), 0,
             report_path
         ))
         conn2.commit()
@@ -461,7 +588,6 @@ def _style_data_sheet(ws, source_df, header_fill, header_font, thin_border, cent
     status_colors = {
         'مدفوع':              'E2EFDA',
         'غير مدفوع':          'FCE4D6',
-        'مدفوع جزئياً':       'FFF2CC',
         'زيادة في التحصيل':   'D6E4F0',
     }
     

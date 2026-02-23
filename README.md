@@ -16,7 +16,10 @@ A full-stack web application that **links weekly order data with collection data
 - ⚙️ **Automated data processing** — links orders with collections and calculates profits
 - 📊 **Interactive charts** — visual analytics powered by Chart.js
 - 📈 **Excel report generation** — styled weekly reports with one click
-- 🔄 **Weekly reset** — clears previous week's data while keeping all old reports
+- 🏪 **Stores Management** — Configure tax rates, shipping, and commission natively
+- 💰 **Cost Management** — Detects products automatically and allows bulk entry of purchasing costs
+- 📦 **Physical Returns Tracking** — Use a barcode scanner to digitally record returns at the warehouse and audit missing financial reimbursements from vendors.
+- 🔄 **Weekly Snapshots** — Archive weekly reports natively.
 - 🖥️ **Simple launcher** — double-click `run.bat` to start everything
 
 ---
@@ -54,10 +57,12 @@ Every new week:
 1️⃣  Run run.bat
       ↓ Browser opens automatically
 
-2️⃣  Dashboard → Click "🔄 New Week"
-      ↓ Clears previous week's data
+2️⃣  Dashboard → Click "🔄 Start New Week"
+      ↓ Archives previous week's data automatically
 
-3️⃣  Upload Files → Upload this week's order & collection files
+3️⃣  Returns & Costs → Scan any returned items in the warehouse and update any new product costs.
+
+4️⃣  Upload Files → Upload this week's order & collection files
       (CSV or XLSX or XLS from all platforms)
 
 4️⃣  Process Data → Click "🚀 Run Full Processing"
@@ -128,7 +133,10 @@ weekly-orders-collections-system/
 | 📁 Upload Files | Drag & Drop upload for orders and collections |
 | ⚙️ Process Data | Run full processing pipeline with live log    |
 | 📊 Analytics    | Interactive charts (Chart.js)                 |
+| 📦 Returns      | Physical scanning of warehouse returned items |
 | 📈 Reports      | Download weekly Excel reports                 |
+| 🏪 Accounts     | Manage branch config (fees, tax, shipping)    |
+| 💰 Costs        | Add original purchase costs for products      |
 
 ---
 

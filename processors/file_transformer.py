@@ -172,7 +172,8 @@ class FileTransformer:
         
         try:
             # قراءة الملف
-            df = pd.read_excel(file_path)
+            with open(file_path, 'rb') as f:
+                df = pd.read_excel(f)
             
             if df.empty:
                 errors.append("الملف فارغ")
@@ -261,7 +262,8 @@ class FileTransformer:
         
         try:
             # قراءة الملف
-            df = pd.read_excel(file_path)
+            with open(file_path, 'rb') as f:
+                df = pd.read_excel(f)
             
             if df.empty:
                 errors.append("الملف فارغ")
@@ -318,7 +320,8 @@ class FileTransformer:
             (صحيح/خطأ, رسالة)
         """
         try:
-            df = pd.read_excel(file_path)
+            with open(file_path, 'rb') as f:
+                df = pd.read_excel(f)
             if df.empty:
                 return False, "الملف فارغ"
             return True, "الملف صحيح"
